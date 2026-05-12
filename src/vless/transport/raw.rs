@@ -6,6 +6,9 @@ use tokio::net::TcpStream;
 use tracing::debug;
 
 pub async fn accept(stream: TcpStream) -> Result<TcpStream> {
-    debug!("vless/transport: plain TCP accepted from {:?}", stream.peer_addr());
+    debug!(
+        "vless/transport: plain TCP accepted from {:?}",
+        stream.peer_addr()
+    );
     Ok(stream)
 }
