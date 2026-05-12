@@ -65,6 +65,7 @@ async fn handle_conn(
     let transport_type = cfg.transport.r#type.as_str();
     let use_tls = cfg.transport.tls;
     let ws_path = cfg.transport.ws_path.as_str();
+    let ws_host = cfg.transport.ws_host.as_deref();
 
     match (transport_type, use_tls) {
         // ── Plain TCP ─────────────────────────────────────────────────────────
@@ -84,7 +85,7 @@ async fn handle_conn(
         // ── WebSocket (no TLS) ────────────────────────────────────────────────
         ("ws", false) => {
             debug!("[vless] {peer} → WS");
-            let ws = vless_ws::accept_plain(stream, ws_path).await?;
+            let ws = vless_ws::accept_plain(stream, ws_path, ws_host).await?;
             process_vless_stream(ws, peer, uuid_bytes).await
         }
 
@@ -93,7 +94,7 @@ async fn handle_conn(
             debug!("[vless] {peer} → WS+TLS");
             let sc = tls_server_config.ok_or_else(|| anyhow::anyhow!("TLS config missing"))?;
             let tls_stream = vless_tls::accept(stream, sc).await?;
-            let ws = vless_ws::accept_tls(tls_stream, ws_path).await?;
+            let ws = vless_ws::accept_tls(tls_stream, ws_path, ws_host).await?;
             process_vless_stream(ws, peer, uuid_bytes).await
         }
 
