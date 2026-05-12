@@ -8,6 +8,7 @@ use h3_quinn::BidiStream;
 use hyper::http::{Response, StatusCode};
 use rand::Rng;
 use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
 use tracing::{debug, warn};
 
 use crate::config::{AuthConfig, Hysteria2Config};
@@ -138,7 +139,6 @@ pub async fn write_tcp_response(
     buf.put_slice(msg);
     write_varint(&mut buf, pad_len as u64);
     buf.put_slice(&padding);
-    use tokio::io::AsyncWriteExt;
     stream.write_all(&buf).await?;
     Ok(())
 }
