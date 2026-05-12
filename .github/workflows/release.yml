@@ -82,7 +82,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      contents: write # 必须赋予写权限以创建 Tag 和 Release
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -90,17 +90,41 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist/
-          merge-multiple: true # 将所有构件下载到同一个目录
+          merge-multiple: true
+
+      - name: Prepare Archives
+        run: |
+          mkdir -p release_assets
+          # 遍历 dist 目录下的所有二进制文件
+          for file in dist/ruproxy-*; do
+            if [ -f "$file" ]; then
+              # 获取架构名称 (例如从 ruproxy-linux-amd64 提取 linux-amd64)
+              arch=$(basename "$file" | sed 's/ruproxy-//')
+              
+              # 创建临时打包目录
+              tmp_dir="ruproxy-${arch}"
+              mkdir -p "$tmp_dir"
+              
+              # 1. 复制二进制并重命名为 ruproxy
+              cp "$file" "$tmp_dir/ruproxy"
+              # 2. 复制根目录的配置文件
+              cp config.yaml "$tmp_dir/"
+              
+              # 3. 压缩为 tar.gz
+              tar -czvf "release_assets/ruproxy-${arch}.tar.gz" -C "$tmp_dir" ruproxy config.yaml
+              
+              echo "Created release_assets/ruproxy-${arch}.tar.gz"
+            fi
+          done
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          # 使用手动输入的版本号作为 Tag
           tag_name: ${{ github.event.inputs.version }}
           name: ruproxy ${{ github.event.inputs.version }}
           draft: false
           prerelease: ${{ contains(github.event.inputs.version, '-') }}
           generate_release_notes: true
-          # 查找 dist 目录下所有文件
+          # 发布 release_assets 目录下所有的 tar.gz 文件
           files: |
-            dist/*
+            release_assets/*.tar.gz
