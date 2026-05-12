@@ -2,7 +2,6 @@ pub mod raw;
 pub mod tls;
 pub mod websocket;
 
-use anyhow::Result;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 /// A type-erased bidirectional stream that vless::listener can use uniformly
