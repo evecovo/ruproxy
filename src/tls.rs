@@ -28,9 +28,8 @@ pub fn build_hy2_tls(cfg: &Hy2TlsConfig) -> Result<ServerConfig> {
         _ => {
             let domain = cfg.self_signed_domain.clone();
             info!("[hy2/tls] Generating self-signed cert for: {domain}");
-            let CertifiedKey { cert, key_pair } =
-                generate_simple_self_signed(vec![domain.clone()])
-                    .with_context(|| format!("self-signed cert for {domain}"))?;
+            let CertifiedKey { cert, key_pair } = generate_simple_self_signed(vec![domain.clone()])
+                .with_context(|| format!("self-signed cert for {domain}"))?;
             let cert_der = CertificateDer::from(cert.der().to_vec());
             let key_der = PrivateKeyDer::try_from(key_pair.serialize_der())
                 .map_err(|e| anyhow::anyhow!("serialize key: {e}"))?;
