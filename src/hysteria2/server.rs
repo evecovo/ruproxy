@@ -9,9 +9,9 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, info, warn};
 
-use crate::hysteria2::auth::{authenticate, read_tcp_request, AuthResult, FRAME_TYPE_TCP_REQUEST};
 use crate::config::Hysteria2Config;
 use crate::congestion::brutal::BrutalFactory;
+use crate::hysteria2::auth::{authenticate, read_tcp_request, AuthResult, FRAME_TYPE_TCP_REQUEST};
 use crate::proxy::{handle_tcp_stream, handle_udp_session, parse_udp_frame, UdpFrame};
 use crate::tls::build_hy2_tls;
 
