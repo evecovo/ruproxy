@@ -126,7 +126,9 @@ pub struct LogConfig {
 
 impl Default for LogConfig {
     fn default() -> Self {
-        Self { level: default_log_level() }
+        Self {
+            level: default_log_level(),
+        }
     }
 }
 
@@ -145,16 +147,32 @@ impl BandwidthConfig {
             None
         }
     }
-    pub fn up_bps(&self) -> Option<u64> { self.up.as_deref().and_then(Self::parse_bps) }
-    pub fn down_bps(&self) -> Option<u64> { self.down.as_deref().and_then(Self::parse_bps) }
+    pub fn up_bps(&self) -> Option<u64> {
+        self.up.as_deref().and_then(Self::parse_bps)
+    }
+    pub fn down_bps(&self) -> Option<u64> {
+        self.down.as_deref().and_then(Self::parse_bps)
+    }
 }
 
-fn default_true() -> bool { true }
-fn default_log_level() -> String { "info".to_string() }
-fn default_self_signed_domain() -> String { "localhost".to_string() }
-fn default_masquerade_type() -> String { "none".to_string() }
-fn default_transport_type() -> String { "tcp".to_string() }
-fn default_ws_path() -> String { "/".to_string() }
+fn default_true() -> bool {
+    true
+}
+fn default_log_level() -> String {
+    "info".to_string()
+}
+fn default_self_signed_domain() -> String {
+    "localhost".to_string()
+}
+fn default_masquerade_type() -> String {
+    "none".to_string()
+}
+fn default_transport_type() -> String {
+    "tcp".to_string()
+}
+fn default_ws_path() -> String {
+    "/".to_string()
+}
 
 pub fn load(path: &str) -> Result<Config> {
     let content = std::fs::read_to_string(Path::new(path))
