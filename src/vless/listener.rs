@@ -15,7 +15,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::config::VlessConfig;
 use crate::vless::protocol::{decode_request, encode_response, parse_uuid, CMD_TCP};
