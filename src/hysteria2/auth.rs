@@ -8,7 +8,6 @@ use h3_quinn::BidiStream;
 use hyper::http::{Response, StatusCode};
 use rand::Rng;
 use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
 use tracing::{debug, warn};
 
 use crate::config::{AuthConfig, Hysteria2Config};
