@@ -5,6 +5,7 @@ use anyhow::Result;
 use tokio::net::TcpStream;
 use tracing::debug;
 
+#[allow(dead_code)]
 pub async fn accept(stream: TcpStream) -> Result<TcpStream> {
     debug!(
         "vless/transport: plain TCP accepted from {:?}",
