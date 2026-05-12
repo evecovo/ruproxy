@@ -23,8 +23,8 @@ use crate::vless::transport::{tls as vless_tls, websocket as vless_ws};
 
 pub async fn run(cfg: Arc<VlessConfig>) -> Result<()> {
     // Validate UUID at startup — fail fast
-    let uuid_bytes = parse_uuid(&cfg.uuid)
-        .map_err(|e| anyhow::anyhow!("vless: invalid UUID in config: {e}"))?;
+    let uuid_bytes =
+        parse_uuid(&cfg.uuid).map_err(|e| anyhow::anyhow!("vless: invalid UUID in config: {e}"))?;
 
     // Build TLS acceptor once if TLS is enabled
     let tls_server_config = if cfg.transport.tls {
@@ -36,8 +36,10 @@ pub async fn run(cfg: Arc<VlessConfig>) -> Result<()> {
 
     let addr: SocketAddr = cfg.listen.parse()?;
     let listener = TcpListener::bind(addr).await?;
-    info!("[vless] Listening on {addr} (transport={}, tls={})",
-        cfg.transport.r#type, cfg.transport.tls);
+    info!(
+        "[vless] Listening on {addr} (transport={}, tls={})",
+        cfg.transport.r#type, cfg.transport.tls
+    );
 
     loop {
         let (stream, peer) = listener.accept().await?;
@@ -110,10 +112,12 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     // 1. Decode VLESS request header
-    let request = decode_request(&mut stream, &uuid_bytes).await.map_err(|e| {
-        warn!("[vless] {peer} header decode failed: {e}");
-        e
-    })?;
+    let request = decode_request(&mut stream, &uuid_bytes)
+        .await
+        .map_err(|e| {
+            warn!("[vless] {peer} header decode failed: {e}");
+            e
+        })?;
 
     if request.command != CMD_TCP {
         anyhow::bail!("vless: UDP not supported (cmd={:#x})", request.command);
@@ -155,12 +159,7 @@ where
 /// (both halves are dropped before relay() returns).
 ///
 /// This mirrors Xray's task.Run(uplink, downlink) pattern.
-async fn relay<S>(
-    inbound: S,
-    outbound: TcpStream,
-    peer: SocketAddr,
-    target: &str,
-) -> Result<()>
+async fn relay<S>(inbound: S, outbound: TcpStream, peer: SocketAddr, target: &str) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
