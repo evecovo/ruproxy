@@ -45,10 +45,7 @@ where
         if req_path != path.as_str() {
             debug!("[vless/ws] rejected path: {req_path} (expected {path})");
             // 404 for path mismatch — same behaviour as Xray ws transport
-            Err(Response::builder()
-                .status(404)
-                .body(None)
-                .unwrap())
+            Err(Response::builder().status(404).body(None).unwrap())
         } else {
             debug!("[vless/ws] accepted path: {req_path}");
             Ok(resp)
@@ -173,19 +170,13 @@ where
         Poll::Ready(Ok(buf.len()))
     }
 
-    fn poll_flush(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.get_mut().inner)
             .poll_flush(cx)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
     }
 
-    fn poll_shutdown(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.get_mut().inner)
             .poll_close(cx)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
