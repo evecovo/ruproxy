@@ -32,5 +32,6 @@ vless:
     # cert: "/etc/ssl/certs/server.crt"
     # key:  "/etc/ssl/private/server.key"
     self_signed_domain: "example.com"
+    ws_host: "your.domain.com"   # 不填则不校验 Host
     # WebSocket path (only used when type=ws)
     ws_path: "/vless"
