@@ -35,8 +35,8 @@ async fn main() -> Result<()> {
     info!("ruproxy starting, config: {config_path}");
 
     // ── Validate: at least one protocol must be enabled ───────────────────────
-    let hy2_enabled = cfg.hysteria2.as_ref().map_or(false, |c| c.enable);
-    let vless_enabled = cfg.vless.as_ref().map_or(false, |c| c.enable);
+    let hy2_enabled = cfg.hysteria2.as_ref().is_some_and(|c| c.enable);
+    let vless_enabled = cfg.vless.as_ref().is_some_and(|c| c.enable);
 
     if !hy2_enabled && !vless_enabled {
         anyhow::bail!("no protocols enabled — set hysteria2.enable or vless.enable to true");
