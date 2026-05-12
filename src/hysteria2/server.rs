@@ -73,7 +73,10 @@ pub async fn run(cfg: Arc<Hysteria2Config>) -> Result<()> {
 
     let brutal_bps = cfg.bandwidth.up_bps();
     if let Some(bps) = brutal_bps {
-        info!("[hy2] Congestion: Brutal @ {} Mbps upload", bps * 8 / 1_000_000);
+        info!(
+            "[hy2] Congestion: Brutal @ {} Mbps upload",
+            bps * 8 / 1_000_000
+        );
     } else {
         info!("[hy2] Congestion: CUBIC (no upload bandwidth configured)");
     }
@@ -154,7 +157,9 @@ async fn handle_connection(incoming: quinn::Incoming, cfg: Arc<Hysteria2Config>)
                     if ok {
                         // 计算 cc-rx：告知客户端服务端接收带宽（下行速率）
                         // 0 表示不限制；如果配了 down_bps 则填实际值（bps → Mbps 字符串）
-                        let cc_rx = cfg.bandwidth.down_bps()
+                        let cc_rx = cfg
+                            .bandwidth
+                            .down_bps()
                             .map(|bps| format!("{}", bps))
                             .unwrap_or_else(|| "0".to_string());
 
