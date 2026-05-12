@@ -98,6 +98,9 @@ pub struct VlessTransportConfig {
     /// WebSocket path. Only used when type="ws". Default "/".
     #[serde(default = "default_ws_path")]
     pub ws_path: String,
+    /// WebSocket Host header to enforce. Only used when type="ws".
+    /// Leave unset to skip Host validation.
+    pub ws_host: Option<String>,
     /// TLS SNI / self-signed domain fallback.
     #[serde(default = "default_self_signed_domain")]
     pub self_signed_domain: String,
@@ -111,6 +114,7 @@ impl Default for VlessTransportConfig {
             cert: None,
             key: None,
             ws_path: default_ws_path(),
+            ws_host: None,
             self_signed_domain: default_self_signed_domain(),
         }
     }
