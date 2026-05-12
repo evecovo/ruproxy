@@ -22,36 +22,60 @@ use tracing::debug;
 
 /// Accept a WebSocket upgrade on a plain TcpStream (no TLS).
 #[allow(clippy::result_large_err)]
-pub async fn accept_plain(stream: TcpStream, expected_path: &str) -> Result<WsStream<TcpStream>> {
-    let ws = do_upgrade(stream, expected_path).await?;
+pub async fn accept_plain(
+    stream: TcpStream,
+    expected_path: &str,
+    expected_host: Option<&str>,
+) -> Result<WsStream<TcpStream>> {
+    let ws = do_upgrade(stream, expected_path, expected_host).await?;
     Ok(WsStream::new(ws))
 }
 
 /// Accept a WebSocket upgrade on a TLS stream.
-pub async fn accept_tls<S>(stream: S, expected_path: &str) -> Result<WsStream<S>>
+pub async fn accept_tls<S>(
+    stream: S,
+    expected_path: &str,
+    expected_host: Option<&str>,
+) -> Result<WsStream<S>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let ws = do_upgrade(stream, expected_path).await?;
+    let ws = do_upgrade(stream, expected_path, expected_host).await?;
     Ok(WsStream::new(ws))
 }
 
 #[allow(clippy::result_large_err)]
-async fn do_upgrade<S>(stream: S, expected_path: &str) -> Result<WebSocketStream<S>>
+async fn do_upgrade<S>(
+    stream: S,
+    expected_path: &str,
+    expected_host: Option<&str>,
+) -> Result<WebSocketStream<S>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let path = expected_path.to_string();
-    let ws = accept_hdr_async(stream, |req: &Request, resp: Response| {
+    let host = expected_host.map(|h| h.to_string());
+    let ws = accept_hdr_async(stream, move |req: &Request, resp: Response| {
+        // Validate Host header if configured
+        if let Some(ref expected) = host {
+            let req_host = req
+                .headers()
+                .get("host")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            if req_host != expected.as_str() {
+                debug!("[vless/ws] rejected host: {req_host} (expected {expected})");
+                return Err(Response::builder().status(400).body(None).unwrap());
+            }
+        }
+        // Validate path
         let req_path = req.uri().path();
         if req_path != path.as_str() {
             debug!("[vless/ws] rejected path: {req_path} (expected {path})");
-            // 404 for path mismatch — same behaviour as Xray ws transport
-            Err(Response::builder().status(404).body(None).unwrap())
-        } else {
-            debug!("[vless/ws] accepted path: {req_path}");
-            Ok(resp)
+            return Err(Response::builder().status(404).body(None).unwrap());
         }
+        debug!("[vless/ws] accepted: host_ok path={req_path}");
+        Ok(resp)
     })
     .await?;
     Ok(ws)
