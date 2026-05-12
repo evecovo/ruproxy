@@ -187,7 +187,13 @@ fn build_single_udp_frame(
     let addr_bytes = addr_str.as_bytes();
     let addr_len = addr_bytes.len() as u64;
 
-    let varint_sz = if addr_len < 64 { 1 } else if addr_len < 16384 { 2 } else { 4 };
+    let varint_sz = if addr_len < 64 {
+        1
+    } else if addr_len < 16384 {
+        2
+    } else {
+        4
+    };
     let total = 4 + 2 + 1 + 1 + varint_sz + addr_bytes.len() + payload.len();
     let mut buf = BytesMut::with_capacity(total);
 
@@ -218,7 +224,9 @@ pub fn build_udp_frames(
     };
 
     if payload.len() <= DATAGRAM_MAX_PAYLOAD {
-        return vec![build_single_udp_frame(session_id, packet_id, 0, 1, &addr_str, payload)];
+        return vec![build_single_udp_frame(
+            session_id, packet_id, 0, 1, &addr_str, payload,
+        )];
     }
 
     let chunks: Vec<&[u8]> = payload.chunks(DATAGRAM_MAX_PAYLOAD).collect();
@@ -244,7 +252,13 @@ struct FragBuffer {
 
 impl FragBuffer {
     fn new(total: u8, addr: String, port: u16) -> Self {
-        Self { total, received: 0, frags: HashMap::new(), addr, port }
+        Self {
+            total,
+            received: 0,
+            frags: HashMap::new(),
+            addr,
+            port,
+        }
     }
 
     fn insert(&mut self, frag_id: u8, payload: Bytes) -> Option<(Bytes, String, u16)> {
