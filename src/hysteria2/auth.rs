@@ -29,9 +29,7 @@ pub async fn authenticate(conn: quinn::Connection, cfg: &Hysteria2Config) -> Aut
 
     match do_handshake(&mut h3_conn, &cfg.auth).await {
         Ok(true) => {
-            tokio::spawn(async move {
-                while let Ok(Some(_)) = h3_conn.accept().await {}
-            });
+            tokio::spawn(async move { while let Ok(Some(_)) = h3_conn.accept().await {} });
             AuthResult::Ok
         }
         Ok(false) => AuthResult::Fail("wrong credentials".to_string()),
@@ -54,7 +52,10 @@ async fn do_handshake(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    debug!("[hy2] Auth attempt, header present: {}", !auth_header.is_empty());
+    debug!(
+        "[hy2] Auth attempt, header present: {}",
+        !auth_header.is_empty()
+    );
 
     let ok = match auth_cfg {
         AuthConfig::Password { password } => auth_header == password.as_str(),
@@ -104,7 +105,10 @@ async fn send_h3_response(
 ///   [bytes]  padding (ignored)
 pub async fn read_tcp_request(stream: &mut quinn::RecvStream) -> Result<String> {
     let addr_len = read_varint_stream(stream).await? as usize;
-    anyhow::ensure!(addr_len > 0 && addr_len <= 2048, "invalid addr_len: {addr_len}");
+    anyhow::ensure!(
+        addr_len > 0 && addr_len <= 2048,
+        "invalid addr_len: {addr_len}"
+    );
 
     let mut addr_buf = vec![0u8; addr_len];
     stream.read_exact(&mut addr_buf).await?;
