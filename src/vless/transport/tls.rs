@@ -13,8 +13,8 @@ use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 use tokio::net::TcpStream;
-use tokio_rustls::TlsAcceptor;
 use tokio_rustls::server::TlsStream;
+use tokio_rustls::TlsAcceptor;
 use tracing::info;
 
 use crate::config::VlessTransportConfig;
@@ -32,9 +32,8 @@ pub fn build_vless_tls(cfg: &VlessTransportConfig) -> Result<ServerConfig> {
         _ => {
             let domain = cfg.self_signed_domain.clone();
             info!("[vless/tls] Generating self-signed cert for domain: {domain}");
-            let CertifiedKey { cert, key_pair } =
-                generate_simple_self_signed(vec![domain.clone()])
-                    .with_context(|| format!("failed to generate self-signed cert for {domain}"))?;
+            let CertifiedKey { cert, key_pair } = generate_simple_self_signed(vec![domain.clone()])
+                .with_context(|| format!("failed to generate self-signed cert for {domain}"))?;
             let cert_der = CertificateDer::from(cert.der().to_vec());
             let key_der = PrivateKeyDer::try_from(key_pair.serialize_der())
                 .map_err(|e| anyhow::anyhow!("serialize key: {e}"))?;
@@ -54,9 +53,14 @@ pub fn build_vless_tls(cfg: &VlessTransportConfig) -> Result<ServerConfig> {
 }
 
 /// Perform the TLS handshake on a raw TcpStream.
-pub async fn accept(stream: TcpStream, server_config: Arc<ServerConfig>) -> Result<TlsStream<TcpStream>> {
+pub async fn accept(
+    stream: TcpStream,
+    server_config: Arc<ServerConfig>,
+) -> Result<TlsStream<TcpStream>> {
     let acceptor = TlsAcceptor::from(server_config);
-    let tls_stream = acceptor.accept(stream).await
+    let tls_stream = acceptor
+        .accept(stream)
+        .await
         .context("vless TLS handshake failed")?;
     Ok(tls_stream)
 }
