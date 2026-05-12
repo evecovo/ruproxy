@@ -1,26 +1,54 @@
-//! Hysteria2 QUIC server core (unchanged from original ruhy implementation)
+//! Hysteria2 QUIC server
+//!
+//! 连接架构（与官方 hysteria2 一致）：
+//!
+//!   ┌─────────────────────────────────────────┐
+//!   │           quinn::Connection              │
+//!   │                                          │
+//!   │   H3 循环 (h3::server::Connection)       │
+//!   │     POST /auth on host "hysteria"        │  ← auth 握手
+//!   │     其他任何 HTTP/3 请求                  │  ← masquerade（v2rayN 延迟测试）
+//!   │                                          │
+//!   │   QUIC 循环 (conn.accept_bi)             │
+//!   │     frame type 0x401                     │  ← TCP proxy
+//!   │                                          │
+//!   │   Datagram 循环 (conn.read_datagram)     │  ← UDP proxy
+//!   └─────────────────────────────────────────┘
+//!
+//! auth 完成后，H3 循环和 QUIC 循环并发运行，共享同一个 quinn::Connection。
+//! H3 只消费 SETTINGS/HEADERS 帧开头的流；TCP 流以 varint 0x401 开头，
+//! 不是合法 H3 帧，quinn 层直接拿走，两者不会互相抢流。
 
 use anyhow::Result;
+use bytes::Bytes;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::sync::{mpsc, Mutex};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
-use crate::config::Hysteria2Config;
+use crate::config::{AuthConfig, Hysteria2Config};
 use crate::congestion::brutal::BrutalFactory;
-use crate::hysteria2::auth::{authenticate, read_tcp_request, AuthResult, FRAME_TYPE_TCP_REQUEST};
+use crate::hysteria2::auth::{gen_padding, read_tcp_request, write_tcp_response};
 use crate::proxy::{handle_tcp_stream, handle_udp_session, parse_udp_frame, UdpFrame};
 use crate::tls::build_hy2_tls;
 
-type SessionMap = Arc<Mutex<HashMap<u32, mpsc::Sender<UdpFrame>>>>;
+// ── 协议常量 ───────────────────────────────────────────────────────────────────
+const AUTH_HOST: &str = "hysteria";
+const AUTH_PATH: &str = "/auth";
+const FRAME_TYPE_TCP: u64 = 0x401;
 
+// ── QUIC 传输参数 ──────────────────────────────────────────────────────────────
 const STREAM_RECEIVE_WINDOW: u32 = 8 * 1024 * 1024;
 const CONN_RECEIVE_WINDOW: u32 = 20 * 1024 * 1024;
 const MAX_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_INCOMING_STREAMS: u32 = 1024;
+
+type SessionMap = Arc<Mutex<HashMap<u32, mpsc::Sender<UdpFrame>>>>;
+
+// ── 入口 ───────────────────────────────────────────────────────────────────────
 
 pub async fn run(cfg: Arc<Hysteria2Config>) -> Result<()> {
     let tls_config = build_hy2_tls(&cfg.tls)?;
@@ -57,7 +85,7 @@ pub async fn run(cfg: Arc<Hysteria2Config>) -> Result<()> {
         let cfg2 = Arc::clone(&cfg);
         tokio::spawn(async move {
             if let Err(e) = handle_connection(incoming, cfg2).await {
-                error!("[hy2] Connection error: {e:#}");
+                debug!("[hy2] Connection ended: {e:#}");
             }
         });
     }
@@ -65,99 +93,200 @@ pub async fn run(cfg: Arc<Hysteria2Config>) -> Result<()> {
     Ok(())
 }
 
+// ── 连接处理 ───────────────────────────────────────────────────────────────────
+
 async fn handle_connection(incoming: quinn::Incoming, cfg: Arc<Hysteria2Config>) -> Result<()> {
     let conn = incoming.await?;
     let peer = conn.remote_address();
     info!("[hy2] New connection from {peer}");
 
-    match authenticate(conn.clone(), &cfg).await {
-        AuthResult::Ok => {
-            info!("[hy2] Authenticated: {peer}");
-        }
-        AuthResult::Fail(msg) => {
-            warn!("[hy2] Auth failed from {peer}: {msg}");
-            conn.close(quinn::VarInt::from_u32(1), b"auth failed");
-            return Ok(());
+    // 建立 H3 连接（交换 SETTINGS 帧）
+    let h3_quinn_conn = h3_quinn::Connection::new(conn.clone());
+    let mut h3 = h3::server::Connection::new(h3_quinn_conn).await?;
+
+    // ── 阶段一：等待 auth ──────────────────────────────────────────────────────
+    loop {
+        match h3.accept().await {
+            Ok(Some(resolver)) => {
+                let (req, stream) = match resolver.resolve_request().await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        debug!("[hy2] {peer} resolve_request: {e}");
+                        continue;
+                    }
+                };
+
+                let is_auth = req.method() == http::Method::POST
+                    && req.uri().host().unwrap_or("") == AUTH_HOST
+                    && req.uri().path() == AUTH_PATH;
+
+                if is_auth {
+                    let auth_val = req
+                        .headers()
+                        .get("Hysteria-Auth")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("")
+                        .to_string();
+
+                    let ok = match &cfg.auth {
+                        AuthConfig::Password { password } => auth_val == *password,
+                        AuthConfig::None => true,
+                    };
+
+                    if ok {
+                        send_auth_ok(stream).await?;
+                        info!("[hy2] Auth OK: {peer}");
+                        break; // 进入阶段二
+                    } else {
+                        warn!("[hy2] Auth failed from {peer}");
+                        let _ = send_auth_fail(stream).await;
+                        conn.close(quinn::VarInt::from_u32(1), b"auth failed");
+                        return Ok(());
+                    }
+                } else {
+                    // 未认证的普通 HTTP 请求 → masquerade
+                    tokio::spawn(masquerade(stream));
+                }
+            }
+            Ok(None) => {
+                debug!("[hy2] {peer} closed before auth");
+                return Ok(());
+            }
+            Err(e) => {
+                debug!("[hy2] {peer} H3 error before auth: {e}");
+                return Ok(());
+            }
         }
     }
 
+    // ── 阶段二：auth 通过，三个循环并发跑 ────────────────────────────────────
     let session_map: SessionMap = Arc::new(Mutex::new(HashMap::new()));
-    let conn2 = conn.clone();
-    let smap2 = Arc::clone(&session_map);
-    let cfg2 = Arc::clone(&cfg);
-    tokio::spawn(async move {
-        if let Err(e) = datagram_loop(conn2, cfg2, smap2).await {
-            debug!("[hy2] Datagram loop ended for {peer}: {e}");
-        }
-    });
 
+    // 循环 A：H3 层——处理后续 HTTP/3 请求（masquerade，v2rayN 延迟测试走这里）
+    let h3_task = {
+        let cfg2 = Arc::clone(&cfg);
+        tokio::spawn(async move {
+            h3_loop(h3, peer, cfg2).await;
+        })
+    };
+
+    // 循环 B：QUIC 层——处理 TCP 代理流（frame type 0x401）
+    let tcp_task = {
+        let conn2 = conn.clone();
+        tokio::spawn(async move {
+            quic_tcp_loop(conn2, peer).await;
+        })
+    };
+
+    // 循环 C：Datagram 层——处理 UDP 代理
+    let udp_task = {
+        let conn2 = conn.clone();
+        let smap = Arc::clone(&session_map);
+        tokio::spawn(async move {
+            datagram_loop(conn2, smap).await;
+        })
+    };
+
+    // 任意一个循环结束就关闭连接，其余自动 abort
+    tokio::select! {
+        _ = h3_task  => {},
+        _ = tcp_task => {},
+        _ = udp_task => {},
+    }
+
+    info!("[hy2] Connection closed: {peer}");
+    conn.close(quinn::VarInt::from_u32(0), b"");
+    Ok(())
+}
+
+// ── H3 循环：masquerade ────────────────────────────────────────────────────────
+
+async fn h3_loop(
+    mut h3: h3::server::Connection<h3_quinn::Connection, Bytes>,
+    peer: SocketAddr,
+    _cfg: Arc<Hysteria2Config>,
+) {
     loop {
-        match conn.accept_bi().await {
-            Ok((send, recv)) => {
-                let cfg3 = Arc::clone(&cfg);
-                tokio::spawn(async move {
-                    if let Err(e) = handle_quic_stream(send, recv, cfg3).await {
-                        debug!("[hy2] QUIC stream error: {e}");
-                    }
-                });
+        match h3.accept().await {
+            Ok(Some(resolver)) => match resolver.resolve_request().await {
+                Ok((_req, stream)) => {
+                    tokio::spawn(masquerade(stream));
+                }
+                Err(e) => {
+                    debug!("[hy2] {peer} H3 resolve: {e}");
+                }
+            },
+            Ok(None) => {
+                debug!("[hy2] {peer} H3 loop closed");
+                break;
             }
             Err(e) => {
-                info!("[hy2] Connection closed from {peer}: {e}");
+                debug!("[hy2] {peer} H3 loop error: {e}");
                 break;
             }
         }
     }
-
-    Ok(())
 }
 
-async fn handle_quic_stream(
-    send: quinn::SendStream,
-    mut recv: quinn::RecvStream,
-    _cfg: Arc<Hysteria2Config>,
-) -> Result<()> {
-    let frame_type = {
-        let first = recv.read_u8().await?;
-        let len = 1usize << (first >> 6);
-        let mut val = (first & 0x3f) as u64;
-        for _ in 1..len {
-            let b = recv.read_u8().await?;
-            val = (val << 8) | b as u64;
-        }
-        val
-    };
+// ── QUIC TCP 循环 ──────────────────────────────────────────────────────────────
 
-    if frame_type != FRAME_TYPE_TCP_REQUEST {
-        debug!("[hy2] Unknown frame type: {frame_type:#x}, ignoring stream");
+async fn quic_tcp_loop(conn: quinn::Connection, peer: SocketAddr) {
+    loop {
+        let (send, recv) = match conn.accept_bi().await {
+            Ok(s) => s,
+            Err(e) => {
+                debug!("[hy2] {peer} accept_bi ended: {e}");
+                break;
+            }
+        };
+
+        tokio::spawn(async move {
+            if let Err(e) = handle_tcp_bidi(send, recv, peer).await {
+                debug!("[hy2] {peer} TCP stream: {e}");
+            }
+        });
+    }
+}
+
+async fn handle_tcp_bidi(
+    mut send: quinn::SendStream,
+    mut recv: quinn::RecvStream,
+    peer: SocketAddr,
+) -> Result<()> {
+    let frame_type = read_varint(&mut recv).await?;
+    if frame_type != FRAME_TYPE_TCP {
+        debug!("[hy2] {peer} unknown frame type {frame_type:#x}");
         return Ok(());
     }
 
-    let addr = read_tcp_request(&mut recv).await?;
-    debug!("[hy2] TCP proxy → {addr}");
+    let target = read_tcp_request(&mut recv).await?;
+    info!("[hy2] {peer} → {target}");
 
-    handle_tcp_stream(send, recv, addr).await
+    handle_tcp_stream(send, recv, target).await
 }
 
-async fn datagram_loop(
-    conn: quinn::Connection,
-    cfg: Arc<Hysteria2Config>,
-    session_map: SessionMap,
-) -> Result<()> {
+// ── Datagram 循环：UDP ────────────────────────────────────────────────────────
+
+async fn datagram_loop(conn: quinn::Connection, session_map: SessionMap) {
     loop {
-        let datagram = conn.read_datagram().await?;
+        let datagram = match conn.read_datagram().await {
+            Ok(d) => d,
+            Err(e) => {
+                debug!("[hy2] datagram loop ended: {e}");
+                break;
+            }
+        };
+
         let frame = match parse_udp_frame(datagram) {
             Ok(f) => f,
             Err(e) => {
-                warn!("[hy2] Bad UDP frame: {e}");
+                warn!("[hy2] bad UDP frame: {e}");
                 continue;
             }
         };
 
         let session_id = frame.session_id;
-        let maybe_tx = {
-            let map = session_map.lock().await;
-            map.get(&session_id).cloned()
-        };
+        let maybe_tx = session_map.lock().await.get(&session_id).cloned();
 
         if let Some(tx) = maybe_tx {
             if tx.send(frame).await.is_err() {
@@ -171,19 +300,76 @@ async fn datagram_loop(
             let smap2 = Arc::clone(&session_map);
 
             tokio::spawn(async move {
-                let send_fn: Arc<dyn Fn(bytes::Bytes) -> Result<()> + Send + Sync> =
-                    Arc::new(move |pkt: bytes::Bytes| {
+                let send_fn: Arc<dyn Fn(Bytes) -> Result<()> + Send + Sync> =
+                    Arc::new(move |pkt: Bytes| {
                         conn2.send_datagram(pkt)?;
                         Ok(())
                     });
 
                 if let Err(e) = handle_udp_session(session_id, frame, rx, send_fn).await {
-                    debug!("[hy2] UDP session {session_id} error: {e}");
+                    debug!("[hy2] UDP session {session_id}: {e}");
                 }
 
                 smap2.lock().await.remove(&session_id);
-                let _ = cfg;
             });
         }
     }
+}
+
+// ── Masquerade ────────────────────────────────────────────────────────────────
+
+async fn masquerade<S>(mut stream: h3::server::RequestStream<S, Bytes>)
+where
+    S: h3::quic::BidiStream<Bytes>,
+{
+    let resp = http::Response::builder()
+        .status(404u16)
+        .header("server", "nginx/1.24.0")
+        .header("content-type", "text/html; charset=utf-8")
+        .body(())
+        .unwrap();
+    let _ = stream.send_response(resp).await;
+    let _ = stream.finish().await;
+}
+
+// ── Auth 响应 ─────────────────────────────────────────────────────────────────
+
+async fn send_auth_ok<S>(mut stream: h3::server::RequestStream<S, Bytes>) -> Result<()>
+where
+    S: h3::quic::BidiStream<Bytes>,
+{
+    let resp = http::Response::builder()
+        .status(233u16)
+        .header("hysteria-udp", "true")
+        .header("hysteria-cc-rx", "0")
+        .header("hysteria-padding", gen_padding(256, 2048))
+        .body(())?;
+    stream.send_response(resp).await?;
+    stream.finish().await?;
+    Ok(())
+}
+
+async fn send_auth_fail<S>(mut stream: h3::server::RequestStream<S, Bytes>) -> Result<()>
+where
+    S: h3::quic::BidiStream<Bytes>,
+{
+    let resp = http::Response::builder()
+        .status(403u16)
+        .header("hysteria-padding", gen_padding(64, 256))
+        .body(())?;
+    stream.send_response(resp).await?;
+    stream.finish().await?;
+    Ok(())
+}
+
+// ── varint 读取（QUIC 格式）────────────────────────────────────────────────────
+
+async fn read_varint(recv: &mut quinn::RecvStream) -> Result<u64> {
+    let first = recv.read_u8().await?;
+    let len = 1usize << (first >> 6);
+    let mut val = (first & 0x3f) as u64;
+    for _ in 1..len {
+        val = (val << 8) | recv.read_u8().await? as u64;
+    }
+    Ok(val)
 }
