@@ -25,8 +25,7 @@ async fn main() -> Result<()> {
         .with_context(|| format!("failed to load config: {config_path}"))?;
 
     // ── Init logging ──────────────────────────────────────────────────────────
-    let filter = EnvFilter::try_new(&cfg.log.level)
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_new(&cfg.log.level).unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)
@@ -61,7 +60,10 @@ async fn main() -> Result<()> {
     if vless_enabled {
         let vless_cfg = Arc::new(cfg.vless.clone().unwrap());
         info!("[vless] enabled, listen: {}", vless_cfg.listen);
-        info!("[vless] transport: type={}, tls={}", vless_cfg.transport.r#type, vless_cfg.transport.tls);
+        info!(
+            "[vless] transport: type={}, tls={}",
+            vless_cfg.transport.r#type, vless_cfg.transport.tls
+        );
         let h = tokio::spawn(async move {
             if let Err(e) = vless::listener::run(vless_cfg).await {
                 tracing::error!("[vless] server exited with error: {e:#}");
@@ -71,7 +73,9 @@ async fn main() -> Result<()> {
     }
 
     // ── Wait for Ctrl-C ───────────────────────────────────────────────────────
-    tokio::signal::ctrl_c().await.context("failed to listen for ctrl-c")?;
+    tokio::signal::ctrl_c()
+        .await
+        .context("failed to listen for ctrl-c")?;
     info!("Shutting down...");
 
     for h in handles {
