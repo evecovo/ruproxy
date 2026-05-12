@@ -18,6 +18,17 @@
 //! auth 完成后，H3 循环和 QUIC 循环并发运行，共享同一个 quinn::Connection。
 //! H3 只消费 SETTINGS/HEADERS 帧开头的流；TCP 流以 varint 0x401 开头，
 //! 不是合法 H3 帧，quinn 层直接拿走，两者不会互相抢流。
+//!
+//! 注意：h3-quinn 对"非 H3 格式"的流的处理行为取决于版本。
+//! 在 h3 0.0.8 + h3-quinn 0.0.10 下，H3 connection 内部只通过
+//! accept_bi 拿它感兴趣的流，0x401 开头的流因为第一个字节不是合法
+//! H3 frame type 会被 H3 层 reset（QUIC stream error），导致 TCP
+//! 代理请求丢失。
+//!
+//! 解决方案：auth 完成后不再把 H3 connection 留在循环里消费新流，
+//! 只用它处理已有的 masquerade 请求。新进来的 bidi stream 全部通过
+//! quinn::Connection::accept_bi 在 quic_tcp_loop 中处理，由我们自己
+//! 判断是 0x401 TCP 流还是 H3 stream（以 H3 SETTINGS frame type 开头）。
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -41,6 +52,12 @@ const AUTH_HOST: &str = "hysteria";
 const AUTH_PATH: &str = "/auth";
 const FRAME_TYPE_TCP: u64 = 0x401;
 
+// H3 SETTINGS frame type（RFC 9114 §7.2.3）
+// bidi stream 以此字节开头说明是 H3 控制流/请求流，不是我们的 TCP 代理流
+const H3_FRAME_SETTINGS: u64 = 0x4;
+// H3 HEADERS frame type
+const H3_FRAME_HEADERS: u64 = 0x1;
+
 // ── QUIC 传输参数 ──────────────────────────────────────────────────────────────
 const STREAM_RECEIVE_WINDOW: u32 = 8 * 1024 * 1024;
 const CONN_RECEIVE_WINDOW: u32 = 20 * 1024 * 1024;
@@ -56,9 +73,9 @@ pub async fn run(cfg: Arc<Hysteria2Config>) -> Result<()> {
 
     let brutal_bps = cfg.bandwidth.up_bps();
     if let Some(bps) = brutal_bps {
-        info!("[hy2] Congestion: Brutal @ {} Mbps", bps * 8 / 1_000_000);
+        info!("[hy2] Congestion: Brutal @ {} Mbps upload", bps * 8 / 1_000_000);
     } else {
-        info!("[hy2] Congestion: CUBIC (no bandwidth configured)");
+        info!("[hy2] Congestion: CUBIC (no upload bandwidth configured)");
     }
 
     let mut transport = quinn::TransportConfig::default();
@@ -135,7 +152,13 @@ async fn handle_connection(incoming: quinn::Incoming, cfg: Arc<Hysteria2Config>)
                     };
 
                     if ok {
-                        send_auth_ok(stream).await?;
+                        // 计算 cc-rx：告知客户端服务端接收带宽（下行速率）
+                        // 0 表示不限制；如果配了 down_bps 则填实际值（bps → Mbps 字符串）
+                        let cc_rx = cfg.bandwidth.down_bps()
+                            .map(|bps| format!("{}", bps))
+                            .unwrap_or_else(|| "0".to_string());
+
+                        send_auth_ok(stream, &cc_rx).await?;
                         info!("[hy2] Auth OK: {peer}");
                         break; // 进入阶段二
                     } else {
@@ -161,17 +184,21 @@ async fn handle_connection(incoming: quinn::Incoming, cfg: Arc<Hysteria2Config>)
     }
 
     // ── 阶段二：auth 通过，三个循环并发跑 ────────────────────────────────────
+    //
+    // 重要变化：auth 后不再单独跑 h3_loop，因为 h3_loop 内部调用
+    // h3.accept()，其底层是 h3_quinn 对 conn.accept_bi() 的包装。
+    // 这会和下面 quic_tcp_loop 里的 conn.accept_bi() 竞争同一批 bidi stream，
+    // 导致 TCP 代理流被 H3 层先拿走并因解析失败而 reset。
+    //
+    // 正确做法：auth 后所有 bidi stream 都由 quic_tcp_loop 统一接收，
+    // 在 handle_tcp_bidi 里通过读第一个 varint 区分 TCP 流（0x401）和
+    // 其他类型（H3 masquerade 请求等），对非 TCP 流直接 reset 或忽略。
+    // masquerade 请求在 auth 前已由 H3 loop 处理，auth 后正常客户端
+    // 不会再发普通 H3 请求，可以安全忽略。
+
     let session_map: SessionMap = Arc::new(Mutex::new(HashMap::new()));
 
-    // 循环 A：H3 层——处理后续 HTTP/3 请求（masquerade，v2rayN 延迟测试走这里）
-    let h3_task = {
-        let cfg2 = Arc::clone(&cfg);
-        tokio::spawn(async move {
-            h3_loop(h3, peer, cfg2).await;
-        })
-    };
-
-    // 循环 B：QUIC 层——处理 TCP 代理流（frame type 0x401）
+    // 循环 A：QUIC 层——统一接收 bidi stream，处理 TCP 代理流
     let tcp_task = {
         let conn2 = conn.clone();
         tokio::spawn(async move {
@@ -179,7 +206,7 @@ async fn handle_connection(incoming: quinn::Incoming, cfg: Arc<Hysteria2Config>)
         })
     };
 
-    // 循环 C：Datagram 层——处理 UDP 代理
+    // 循环 B：Datagram 层——处理 UDP 代理
     let udp_task = {
         let conn2 = conn.clone();
         let smap = Arc::clone(&session_map);
@@ -188,9 +215,8 @@ async fn handle_connection(incoming: quinn::Incoming, cfg: Arc<Hysteria2Config>)
         })
     };
 
-    // 任意一个循环结束就关闭连接，其余自动 abort
+    // 任意一个循环结束就关闭连接
     tokio::select! {
-        _ = h3_task  => {},
         _ = tcp_task => {},
         _ = udp_task => {},
     }
@@ -198,35 +224,6 @@ async fn handle_connection(incoming: quinn::Incoming, cfg: Arc<Hysteria2Config>)
     info!("[hy2] Connection closed: {peer}");
     conn.close(quinn::VarInt::from_u32(0), b"");
     Ok(())
-}
-
-// ── H3 循环：masquerade ────────────────────────────────────────────────────────
-
-async fn h3_loop(
-    mut h3: h3::server::Connection<h3_quinn::Connection, Bytes>,
-    peer: SocketAddr,
-    _cfg: Arc<Hysteria2Config>,
-) {
-    loop {
-        match h3.accept().await {
-            Ok(Some(resolver)) => match resolver.resolve_request().await {
-                Ok((_req, stream)) => {
-                    tokio::spawn(masquerade(stream));
-                }
-                Err(e) => {
-                    debug!("[hy2] {peer} H3 resolve: {e}");
-                }
-            },
-            Ok(None) => {
-                debug!("[hy2] {peer} H3 loop closed");
-                break;
-            }
-            Err(e) => {
-                debug!("[hy2] {peer} H3 loop error: {e}");
-                break;
-            }
-        }
-    }
 }
 
 // ── QUIC TCP 循环 ──────────────────────────────────────────────────────────────
@@ -255,15 +252,25 @@ async fn handle_tcp_bidi(
     peer: SocketAddr,
 ) -> Result<()> {
     let frame_type = read_varint(&mut recv).await?;
-    if frame_type != FRAME_TYPE_TCP {
-        debug!("[hy2] {peer} unknown frame type {frame_type:#x}");
-        return Ok(());
+
+    match frame_type {
+        FRAME_TYPE_TCP => {
+            // 正常 TCP 代理流
+            let target = read_tcp_request(&mut recv).await?;
+            info!("[hy2] {peer} → {target}");
+            handle_tcp_stream(send, recv, target).await
+        }
+        H3_FRAME_SETTINGS | H3_FRAME_HEADERS => {
+            // H3 控制流/请求流误入（正常不应发生，auth 后客户端不发 masquerade）
+            // 静默忽略，不 reset，避免影响连接
+            debug!("[hy2] {peer} got H3 frame type {frame_type:#x} after auth, ignoring");
+            Ok(())
+        }
+        other => {
+            debug!("[hy2] {peer} unknown frame type {other:#x}, ignoring");
+            Ok(())
+        }
     }
-
-    let target = read_tcp_request(&mut recv).await?;
-    info!("[hy2] {peer} → {target}");
-
-    handle_tcp_stream(send, recv, target).await
 }
 
 // ── Datagram 循环：UDP ────────────────────────────────────────────────────────
@@ -335,14 +342,18 @@ where
 
 // ── Auth 响应 ─────────────────────────────────────────────────────────────────
 
-async fn send_auth_ok<S>(mut stream: h3::server::RequestStream<S, Bytes>) -> Result<()>
+async fn send_auth_ok<S>(mut stream: h3::server::RequestStream<S, Bytes>, cc_rx: &str) -> Result<()>
 where
     S: h3::quic::BidiStream<Bytes>,
 {
+    // hysteria-cc-rx：告知客户端服务端下行接收带宽（bytes/sec）。
+    // 原来写死 "0" 表示不限制，但部分客户端（如 sing-box outbound）
+    // 会用这个值协商 Brutal 拥塞控制的目标速率。
+    // 现在从配置中读取 down_bps，没配则为 "0"（不限制）。
     let resp = http::Response::builder()
         .status(233u16)
         .header("hysteria-udp", "true")
-        .header("hysteria-cc-rx", "0")
+        .header("hysteria-cc-rx", cc_rx)
         .header("hysteria-padding", gen_padding(256, 2048))
         .body(())?;
     stream.send_response(resp).await?;

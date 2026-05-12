@@ -3,7 +3,7 @@
 use anyhow::Result;
 use bytes::{BufMut, BytesMut};
 use rand::Rng;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 // ── Padding ───────────────────────────────────────────────────────────────────
 
@@ -52,6 +52,11 @@ pub async fn read_tcp_request(stream: &mut quinn::RecvStream) -> Result<String> 
 //   [bytes]  message
 //   [varint] padding_len
 //   [bytes]  padding
+//
+// 注意：此函数只负责写入，不调用 flush()。
+// 调用方在需要立刻发出（如发完响应后准备转发数据）时必须自行 flush。
+// 原因：flush() 将 Quinn 内部缓冲强制提交到网络。如果不 flush，
+// 数据可能停留在缓冲区，等下一次 write 才一起发出，导致对端等待。
 
 pub async fn write_tcp_response(
     stream: &mut quinn::SendStream,
@@ -70,6 +75,8 @@ pub async fn write_tcp_response(
     buf.put_slice(&padding);
 
     stream.write_all(&buf).await?;
+    // 不在这里 flush：由调用方决定何时 flush，避免函数语义模糊。
+    // proxy.rs 的 handle_tcp_stream 在调用本函数后会显式调用 flush()。
     Ok(())
 }
 
