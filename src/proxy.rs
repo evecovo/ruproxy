@@ -323,7 +323,9 @@ async fn relay_frame(
         frag_table.remove(&frame.packet_id);
         let reassembled_target = format!("{addr}:{port}");
         if let Err(e) = sock.send_to(&reassembled, &reassembled_target).await {
-            warn!("UDP session {session_id}: send_to {reassembled_target} (reassembled) error: {e}");
+            warn!(
+                "UDP session {session_id}: send_to {reassembled_target} (reassembled) error: {e}"
+            );
         } else {
             debug!(
                 "UDP session {session_id}: sent reassembled {} bytes → {reassembled_target}",
