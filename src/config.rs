@@ -150,6 +150,7 @@ impl BandwidthConfig {
     pub fn up_bps(&self) -> Option<u64> {
         self.up.as_deref().and_then(Self::parse_bps)
     }
+    #[allow(dead_code)]
     pub fn down_bps(&self) -> Option<u64> {
         self.down.as_deref().and_then(Self::parse_bps)
     }
