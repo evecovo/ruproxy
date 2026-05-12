@@ -21,6 +21,7 @@
 
 use anyhow::Result;
 use bytes::Bytes;
+use hyper::http;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -31,7 +32,7 @@ use tracing::{debug, info, warn};
 
 use crate::config::{AuthConfig, Hysteria2Config};
 use crate::congestion::brutal::BrutalFactory;
-use crate::hysteria2::auth::{gen_padding, read_tcp_request, write_tcp_response};
+use crate::hysteria2::auth::{gen_padding, read_tcp_request};
 use crate::proxy::{handle_tcp_stream, handle_udp_session, parse_udp_frame, UdpFrame};
 use crate::tls::build_hy2_tls;
 
@@ -249,7 +250,7 @@ async fn quic_tcp_loop(conn: quinn::Connection, peer: SocketAddr) {
 }
 
 async fn handle_tcp_bidi(
-    mut send: quinn::SendStream,
+    send: quinn::SendStream,
     mut recv: quinn::RecvStream,
     peer: SocketAddr,
 ) -> Result<()> {
