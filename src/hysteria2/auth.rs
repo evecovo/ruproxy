@@ -3,7 +3,7 @@
 use anyhow::Result;
 use bytes::{BufMut, BytesMut};
 use rand::Rng;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 
 // ── Padding ───────────────────────────────────────────────────────────────────
 
