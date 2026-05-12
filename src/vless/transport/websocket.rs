@@ -21,6 +21,7 @@ use tracing::debug;
 // ── Public accept functions ───────────────────────────────────────────────────
 
 /// Accept a WebSocket upgrade on a plain TcpStream (no TLS).
+#[allow(clippy::result_large_err)]
 pub async fn accept_plain(stream: TcpStream, expected_path: &str) -> Result<WsStream<TcpStream>> {
     let ws = do_upgrade(stream, expected_path).await?;
     Ok(WsStream::new(ws))
@@ -35,6 +36,7 @@ where
     Ok(WsStream::new(ws))
 }
 
+#[allow(clippy::result_large_err)]
 async fn do_upgrade<S>(stream: S, expected_path: &str) -> Result<WebSocketStream<S>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -173,12 +175,12 @@ where
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.get_mut().inner)
             .poll_flush(cx)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+            .map_err(|e| std::io::Error::other(e.to_string()))
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.get_mut().inner)
             .poll_close(cx)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+            .map_err(|e| std::io::Error::other(e.to_string()))
     }
 }
