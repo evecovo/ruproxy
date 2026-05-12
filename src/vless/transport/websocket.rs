@@ -8,7 +8,7 @@
 
 use anyhow::Result;
 use bytes::BytesMut;
-use futures_util::{Sink, SinkExt, StreamExt};
+use futures_util::{Sink, Stream};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
