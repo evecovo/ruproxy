@@ -92,30 +92,17 @@ jobs:
           path: dist/
           merge-multiple: true
 
-      - name: Prepare Archives
+      - name: Prepare Assets
         run: |
           mkdir -p release_assets
-          # 遍历 dist 目录下的所有二进制文件
-          for file in dist/ruproxy-*; do
-            if [ -f "$file" ]; then
-              # 获取架构名称 (例如从 ruproxy-linux-amd64 提取 linux-amd64)
-              arch=$(basename "$file" | sed 's/ruproxy-//')
-              
-              # 创建临时打包目录
-              tmp_dir="ruproxy-${arch}"
-              mkdir -p "$tmp_dir"
-              
-              # 1. 复制二进制并重命名为 ruproxy
-              cp "$file" "$tmp_dir/ruproxy"
-              # 2. 复制根目录的配置文件
-              cp config.yaml "$tmp_dir/"
-              
-              # 3. 压缩为 tar.gz
-              tar -czvf "release_assets/ruproxy-${arch}.tar.gz" -C "$tmp_dir" ruproxy config.yaml
-              
-              echo "Created release_assets/ruproxy-${arch}.tar.gz"
-            fi
-          done
+          # 1. 复制所有二进制文件到发布目录
+          cp dist/ruproxy-* release_assets/
+          
+          # 2. 复制配置文件并重命名（如果需要包含在 Release 页面供下载）
+          cp config.yaml release_assets/config.yaml
+          
+          echo "Assets prepared in release_assets/:"
+          ls -R release_assets/
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -125,6 +112,7 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.event.inputs.version, '-') }}
           generate_release_notes: true
-          # 发布 release_assets 目录下所有的 tar.gz 文件
+          # 直接发布目录下所有的文件
           files: |
-            release_assets/*.tar.gz
+            release_assets/ruproxy-*
+            release_assets/config.yaml
