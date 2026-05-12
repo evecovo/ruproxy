@@ -1,7 +1,8 @@
-name: Build & Release
+name: test
 
 on:
   workflow_dispatch:
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -13,12 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -27,11 +26,8 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
-
       - name: cargo clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
@@ -44,13 +40,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64 (musl, 静态链接)
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             artifact: ruproxy-linux-amd64
             cross: true
-
-          # Linux ARM64
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             artifact: ruproxy-linux-arm64
@@ -58,63 +51,33 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-
-
-      # cross 用于 Linux 交叉编译
       - name: Install cross
         if: matrix.cross
         run: cargo install cross --git https://github.com/cross-rs/cross
-
       - name: Build (cross)
         if: matrix.cross
         run: cross build --release --target ${{ matrix.target }}
-
-      - name: Build (cargo)
-        if: "!matrix.cross"
-        run: cargo build --release --target ${{ matrix.target }}
-
-      # 重命名产物
-      - name: Rename artifact (Unix)
-        if: runner.os != 'Windows'
+      - name: Rename artifact
         run: |
           cp target/${{ matrix.target }}/release/ruproxy ${{ matrix.artifact }}
           chmod +x ${{ matrix.artifact }}
-
-      - name: Rename artifact (Windows)
-        if: runner.os == 'Windows'
-        run: Copy-Item "target\${{ matrix.target }}\release\ruproxy.exe" "${{ matrix.artifact }}"
-        shell: pwsh
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
-          if-no-files-found: error
 
-  # ── Release（仅 tag 触发）─────────────────────────────────────────────────────
+  # ── Release 任务 ────────────────────────────────────────────────────────────
   release:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
-      contents: write
-
+      contents: write # 必须赋予写权限以创建 Tag 和 Release
     steps:
       - uses: actions/checkout@v4
 
@@ -122,12 +85,17 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist/
+          merge-multiple: true # 将所有构件下载到同一个目录
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ruproxy ${{ github.ref_name }}
+          # 使用手动输入的版本号作为 Tag
+          tag_name: test
+          name: ruproxy test
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(github.event.inputs.version, '-') }}
           generate_release_notes: true
-          files: dist/**/*
+          # 查找 dist 目录下所有文件
+          files: |
+            dist/*
