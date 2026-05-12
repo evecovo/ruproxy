@@ -248,12 +248,15 @@ pub async fn handle_udp_session(
     mut rx: mpsc::Receiver<UdpFrame>,
     send_datagram: Arc<dyn Fn(Bytes) -> Result<()> + Send + Sync>,
 ) -> Result<()> {
-    let target = format!("{}:{}", first_frame.addr, first_frame.port);
-    debug!("UDP session {session_id} → {target}");
+    debug!("UDP session {session_id} started");
 
+    // Bind an unconnected socket — one socket handles all targets for this session.
+    // We must NOT call connect() because:
+    //   1. Each UDP frame may target a different address (the protocol allows it).
+    //   2. connect() filters incoming packets by source IP, which breaks DNS replies
+    //      that may arrive from a different interface/address than expected.
     let local: SocketAddr = "0.0.0.0:0".parse().unwrap();
     let sock = Arc::new(UdpSocket::bind(local).await?);
-    sock.connect(&target).await?;
 
     let mut frag_table: HashMap<u16, FragBuffer> = HashMap::new();
     relay_frame(session_id, first_frame, &sock, &mut frag_table).await;
@@ -261,6 +264,7 @@ pub async fn handle_udp_session(
     let sock_recv = Arc::clone(&sock);
     let send2 = Arc::clone(&send_datagram);
 
+    // Receive loop: forward any UDP reply back to the client as a datagram.
     let recv_task = tokio::spawn(async move {
         let mut buf = vec![0u8; UDP_MAX_PKT];
         loop {
@@ -299,24 +303,30 @@ async fn relay_frame(
     sock: &UdpSocket,
     frag_table: &mut HashMap<u16, FragBuffer>,
 ) {
+    let target = format!("{}:{}", frame.addr, frame.port);
+
     if frame.frag_total <= 1 {
-        if let Err(e) = sock.send(&frame.payload).await {
-            warn!("UDP session {session_id}: send error: {e}");
+        // Single-fragment packet — send directly using send_to so we respect
+        // the per-frame destination address (not locked to one target).
+        if let Err(e) = sock.send_to(&frame.payload, &target).await {
+            warn!("UDP session {session_id}: send_to {target} error: {e}");
         }
         return;
     }
 
+    // Multi-fragment packet — reassemble first, then send_to.
     let buf = frag_table
         .entry(frame.packet_id)
         .or_insert_with(|| FragBuffer::new(frame.frag_total, frame.addr.clone(), frame.port));
 
-    if let Some((reassembled, _addr, _port)) = buf.insert(frame.frag_id, frame.payload) {
+    if let Some((reassembled, addr, port)) = buf.insert(frame.frag_id, frame.payload) {
         frag_table.remove(&frame.packet_id);
-        if let Err(e) = sock.send(&reassembled).await {
-            warn!("UDP session {session_id}: send reassembled error: {e}");
+        let reassembled_target = format!("{addr}:{port}");
+        if let Err(e) = sock.send_to(&reassembled, &reassembled_target).await {
+            warn!("UDP session {session_id}: send_to {reassembled_target} (reassembled) error: {e}");
         } else {
             debug!(
-                "UDP session {session_id}: sent reassembled packet ({} bytes)",
+                "UDP session {session_id}: sent reassembled {} bytes → {reassembled_target}",
                 reassembled.len()
             );
         }
