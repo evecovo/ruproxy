@@ -116,7 +116,7 @@ jobs:
           cp dist/ruproxy-* release_assets/
           
           # 2. 复制配置文件并重命名（如果需要包含在 Release 页面供下载）
-          cp config.yaml release_assets/config.yaml
+          cp config.yaml release_assets/config.toml
           
           echo "Assets prepared in release_assets/:"
           ls -R release_assets/
