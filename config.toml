@@ -52,7 +52,7 @@ key  = "/etc/ssl/private/server.key"
 
 # ── Alternative: VLESS + Reality ─────────────────────────────────────────────
 # [vless.transport]
-# type = "reality"
+# type = "reality"          # tls 字段不可与 reality 同时使用，Reality 内部管理 TLS
 #
 # [vless.transport.reality]
 # private_key = "<base64-encoded x25519 private key>"

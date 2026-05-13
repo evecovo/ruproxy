@@ -19,6 +19,10 @@ pub async fn run(cfg: Arc<VlessConfig>) -> Result<()> {
 
     let transport_type = cfg.transport.r#type.as_str();
 
+    if transport_type == "reality" && cfg.transport.tls {
+        anyhow::bail!("vless: transport.tls=true is invalid when type=reality; Reality manages TLS internally");
+    }
+
     let tls_acceptor: Option<Arc<TlsAcceptor>> = match transport_type {
         "reality" => {
             let reality_cfg = cfg.transport.reality.as_ref().ok_or_else(|| {
