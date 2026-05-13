@@ -73,8 +73,8 @@ async fn handle_conn(
             let reality_cfg = cfg.transport.reality.as_ref().ok_or_else(|| {
                 anyhow::anyhow!("vless: missing [vless.transport.reality] section")
             })?;
-            let acceptor =
-                tls_acceptor.ok_or_else(|| anyhow::anyhow!("vless: Reality TLS acceptor missing"))?;
+            let acceptor = tls_acceptor
+                .ok_or_else(|| anyhow::anyhow!("vless: Reality TLS acceptor missing"))?;
 
             let reality_stream = vless_reality::accept(stream, peer, reality_cfg, acceptor).await?;
             process_vless_stream(reality_stream, peer, uuid_bytes).await
@@ -87,8 +87,8 @@ async fn handle_conn(
 
         "tcp" => {
             debug!("[vless] {peer} → TCP+TLS");
-            let acceptor =
-                tls_acceptor.ok_or_else(|| anyhow::anyhow!("[vless] TLS acceptor missing"))?;
+            let acceptor = tls_acceptor
+                .ok_or_else(|| anyhow::anyhow!("[vless] TLS acceptor missing"))?;
             let tls_stream = acceptor
                 .accept(stream)
                 .await
@@ -104,8 +104,8 @@ async fn handle_conn(
 
         "ws" => {
             debug!("[vless] {peer} → WS+TLS");
-            let acceptor =
-                tls_acceptor.ok_or_else(|| anyhow::anyhow!("[vless] TLS acceptor missing"))?;
+            let acceptor = tls_acceptor
+                .ok_or_else(|| anyhow::anyhow!("[vless] TLS acceptor missing"))?;
             let tls_stream = acceptor
                 .accept(stream)
                 .await
