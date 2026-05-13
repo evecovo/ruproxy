@@ -2,7 +2,7 @@
 name = "ruproxy"
 version = "0.1.0"
 edition = "2021"
-description = "A multi-protocol proxy server (Hysteria2 + VLESS) in Rust"
+description = "A multi-protocol proxy server (Hysteria2 + VLESS + Reality) in Rust"
 license = "MIT"
 
 [[bin]]
@@ -30,7 +30,6 @@ tokio-rustls = "0.26"
 rcgen = "0.13"
 
 # WebSocket (VLESS ws transport)
-# 0.21 uses tungstenite 0.20: Message::Binary(Vec<u8>), stable and widely tested
 tokio-tungstenite = "0.21"
 futures-util = "0.3"
 
@@ -59,6 +58,12 @@ thiserror = "1"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Reality transport dependencies
+ring = "0.17"          # x25519 ECDH + HMAC-SHA256 for Reality auth
+base64 = "0.22"        # decode x25519 keys from config
+hex = "0.4"            # decode Reality short IDs from config
+libc = "0.2"           # MSG_PEEK for TLS ClientHello inspection
 
 [profile.release]
 opt-level = 3

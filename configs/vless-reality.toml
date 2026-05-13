@@ -1,0 +1,16 @@
+# Minimal: VLESS + Reality
+# Generate keypair:
+#   openssl genpkey -algorithm x25519 | openssl pkey -noout -text 2>&1 | grep -A3 "priv:" | xxd -r -p | base64
+[vless]
+listen = "0.0.0.0:443"
+uuid   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+[vless.transport]
+type = "reality"
+
+[vless.transport.reality]
+private_key = "<your-x25519-private-key-base64>"
+public_key  = "<your-x25519-public-key-base64>"
+short_ids   = ["abcd1234ef567890"]
+dest        = "example.com:443"
+server_name = "example.com"

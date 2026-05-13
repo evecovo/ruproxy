@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
         .install_default()
         .expect("failed to install rustls crypto provider");
 
-    // ── Parse CLI: ./ruproxy -c config.yaml ──────────────────────────────────
+    // ── Parse CLI: ./ruproxy -c config.toml ──────────────────────────────────
     let config_path = parse_config_arg();
 
     // ── Load config ───────────────────────────────────────────────────────────
@@ -34,19 +34,18 @@ async fn main() -> Result<()> {
 
     info!("ruproxy starting, config: {config_path}");
 
-    // ── Validate: at least one protocol must be enabled ───────────────────────
-    let hy2_enabled = cfg.hysteria2.as_ref().is_some_and(|c| c.enable);
-    let vless_enabled = cfg.vless.as_ref().is_some_and(|c| c.enable);
-
-    if !hy2_enabled && !vless_enabled {
-        anyhow::bail!("no protocols enabled — set hysteria2.enable or vless.enable to true");
+    // ── Validate: at least one protocol section must be present ───────────────
+    if cfg.hysteria2.is_none() && cfg.vless.is_none() {
+        anyhow::bail!(
+            "no protocols configured — add a [hysteria2] or [vless] section to your config"
+        );
     }
 
     let mut handles = Vec::new();
 
     // ── Hysteria2 server ──────────────────────────────────────────────────────
-    if hy2_enabled {
-        let hy2_cfg = Arc::new(cfg.hysteria2.clone().unwrap());
+    if let Some(hy2_cfg) = cfg.hysteria2.clone() {
+        let hy2_cfg = Arc::new(hy2_cfg);
         info!("[hy2] enabled, listen: {}", hy2_cfg.listen);
         let h = tokio::spawn(async move {
             if let Err(e) = hysteria2::server::run(hy2_cfg).await {
@@ -57,8 +56,8 @@ async fn main() -> Result<()> {
     }
 
     // ── VLESS server ──────────────────────────────────────────────────────────
-    if vless_enabled {
-        let vless_cfg = Arc::new(cfg.vless.clone().unwrap());
+    if let Some(vless_cfg) = cfg.vless.clone() {
+        let vless_cfg = Arc::new(vless_cfg);
         info!("[vless] enabled, listen: {}", vless_cfg.listen);
         info!(
             "[vless] transport: type={}, tls={}",
@@ -85,7 +84,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Parse `-c <path>` from argv, defaulting to "config.yaml".
+/// Parse `-c <path>` from argv, defaulting to "config.toml".
 fn parse_config_arg() -> String {
     let args: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -97,5 +96,5 @@ fn parse_config_arg() -> String {
         }
         i += 1;
     }
-    "config.yaml".to_string()
+    "config.toml".to_string()
 }

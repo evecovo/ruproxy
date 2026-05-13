@@ -16,8 +16,7 @@ pub struct Config {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Hysteria2Config {
-    #[serde(default = "default_true")]
-    pub enable: bool,
+    /// TCP listen address, e.g. "0.0.0.0:443"
     pub listen: String,
     pub tls: Hy2TlsConfig,
     pub auth: AuthConfig,
@@ -31,8 +30,8 @@ pub struct Hysteria2Config {
 pub struct Hy2TlsConfig {
     pub cert: Option<String>,
     pub key: Option<String>,
-    #[serde(default = "default_self_signed_domain")]
-    pub self_signed_domain: String,
+    /// Used to generate a self-signed cert when cert/key are not provided.
+    pub self_signed_domain: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -66,11 +65,9 @@ pub struct MasqueradeProxy {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct VlessConfig {
-    #[serde(default = "default_true")]
-    pub enable: bool,
     /// TCP listen address, e.g. "0.0.0.0:8443"
     pub listen: String,
-    /// Single UUID for authentication (matches Xray single-user model)
+    /// UUID for authentication
     pub uuid: String,
     #[serde(default)]
     pub transport: VlessTransportConfig,
@@ -78,32 +75,32 @@ pub struct VlessConfig {
 
 /// Transport layer configuration.
 ///
-/// Four valid combinations (mirrors Xray transport options):
-///   type=tcp,  tls=false  -> plain TCP
-///   type=tcp,  tls=true   -> TCP + TLS
-///   type=ws,   tls=false  -> WebSocket (no TLS, suitable behind CDN/nginx)
-///   type=ws,   tls=true   -> WebSocket + TLS
+/// Supported combinations:
+///   type=tcp,     tls=false    → plain TCP
+///   type=tcp,     tls=true     → TCP + TLS
+///   type=ws,      tls=false    → WebSocket (no TLS, behind CDN/nginx)
+///   type=ws,      tls=true     → WebSocket + TLS
+///   type=reality               → VLESS + Reality (uTLS camouflage)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct VlessTransportConfig {
-    /// "tcp" or "ws"
+    /// "tcp", "ws", or "reality"
     #[serde(default = "default_transport_type")]
     pub r#type: String,
-    /// Whether to wrap the transport with TLS
+
+    // ── TLS fields (type=tcp/ws with tls=true) ────────────────────────────
     #[serde(default)]
     pub tls: bool,
-    /// TLS certificate file (PEM). Required when tls=true.
     pub cert: Option<String>,
-    /// TLS private key file (PEM). Required when tls=true.
     pub key: Option<String>,
-    /// WebSocket path. Only used when type="ws". Default "/".
+    pub self_signed_domain: Option<String>,
+
+    // ── WebSocket fields (type=ws) ────────────────────────────────────────
     #[serde(default = "default_ws_path")]
     pub ws_path: String,
-    /// WebSocket Host header to enforce. Only used when type="ws".
-    /// Leave unset to skip Host validation.
     pub ws_host: Option<String>,
-    /// TLS SNI / self-signed domain fallback.
-    #[serde(default = "default_self_signed_domain")]
-    pub self_signed_domain: String,
+
+    // ── Reality fields (type=reality) ─────────────────────────────────────
+    pub reality: Option<RealityConfig>,
 }
 
 impl Default for VlessTransportConfig {
@@ -113,11 +110,38 @@ impl Default for VlessTransportConfig {
             tls: false,
             cert: None,
             key: None,
+            self_signed_domain: None,
             ws_path: default_ws_path(),
             ws_host: None,
-            self_signed_domain: default_self_signed_domain(),
+            reality: None,
         }
     }
+}
+
+/// Reality protocol configuration (VLESS + Reality).
+///
+/// Reality is a TLS-camouflage transport where the server impersonates a real
+/// TLS destination.  Clients authenticate via a short ID instead of a CA chain,
+/// so no certificate file is required.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RealityConfig {
+    /// x25519 private key (base64-encoded, 32 bytes).
+    /// Generate with: `openssl genpkey -algorithm x25519 | openssl pkey -noout -text`
+    pub private_key: String,
+
+    /// Corresponding x25519 public key (base64). Shared with clients.
+    pub public_key: String,
+
+    /// One or more short IDs (hex strings, 0–16 hex chars / 0–8 bytes).
+    /// Clients must present a matching short ID in the ClientHello.
+    pub short_ids: Vec<String>,
+
+    /// Destination (host:port) whose TLS fingerprint to impersonate.
+    /// E.g. "example.com:443". Non-Reality clients are forwarded here.
+    pub dest: String,
+
+    /// SNI the server expects from Reality clients (matches dest's cert).
+    pub server_name: String,
 }
 
 // ── Shared ────────────────────────────────────────────────────────────────────
@@ -160,14 +184,8 @@ impl BandwidthConfig {
     }
 }
 
-fn default_true() -> bool {
-    true
-}
 fn default_log_level() -> String {
     "info".to_string()
-}
-fn default_self_signed_domain() -> String {
-    "localhost".to_string()
 }
 fn default_masquerade_type() -> String {
     "none".to_string()

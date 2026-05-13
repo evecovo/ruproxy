@@ -1,34 +1,62 @@
-[log]
-level = "info"
+# ruproxy configuration
+# Only fields relevant to your setup are needed.
+# Omit a [hysteria2] or [vless] section entirely to disable that protocol.
 
+# ── Logging (optional, default: info) ────────────────────────────────────────
+[log]
+level = "info"   # trace | debug | info | warn | error
+
+# ── Hysteria2 ─────────────────────────────────────────────────────────────────
+# Remove or comment out this entire section to disable Hysteria2.
 [hysteria2]
-enable = true
 listen = "0.0.0.0:443"
 
 [hysteria2.tls]
 cert = "/etc/ssl/certs/server.crt"
 key  = "/etc/ssl/private/server.key"
-self_signed_domain = ""
+# self_signed_domain = "example.com"   # uncomment to auto-generate a self-signed cert
 
 [hysteria2.auth]
-type = "password"
+type     = "password"
 password = "your-strong-password-here"
 
-[hysteria2.bandwidth]
-up   = "1000 mbps"
-down = "1000 mbps"
+# [hysteria2.bandwidth]          # optional — omit to use unlimited
+# up   = "1000 mbps"
+# down = "1000 mbps"
 
-# VLESS (TCP)
+# [hysteria2.masquerade]         # optional
+# type = "proxy"
+# [hysteria2.masquerade.proxy]
+# url          = "https://example.com"
+# rewrite_host = true
+
+# ── VLESS (TCP + TLS) ─────────────────────────────────────────────────────────
+# Remove or comment out this entire section to disable VLESS.
 [vless]
-enable = true
 listen = "0.0.0.0:8443"
 uuid   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 [vless.transport]
-type               = "tcp"
-tls                = true
+type = "tcp"
+tls  = true
 cert = "/etc/ssl/certs/server.crt"
 key  = "/etc/ssl/private/server.key"
-self_signed_domain = "example.com"
-ws_host            = "your.domain.com"
-ws_path            = "/vless"
+# self_signed_domain = "example.com"  # uncomment to auto-generate a self-signed cert
+
+# ── Alternative: VLESS + WebSocket ───────────────────────────────────────────
+# [vless.transport]
+# type    = "ws"
+# tls     = false        # set true if terminating TLS yourself
+# ws_path = "/vless"
+# ws_host = "your.domain.com"   # optional: enforce Host header
+
+# ── Alternative: VLESS + Reality ─────────────────────────────────────────────
+# [vless.transport]
+# type = "reality"
+#
+# [vless.transport.reality]
+# private_key = "<base64-encoded x25519 private key>"
+# public_key  = "<base64-encoded x25519 public key>"
+# short_ids   = ["abcd1234", "ef567890"]   # hex, 0-16 chars each
+# dest        = "example.com:443"           # impersonation target
+# server_name = "example.com"              # SNI clients send

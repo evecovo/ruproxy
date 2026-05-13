@@ -26,7 +26,7 @@ pub fn build_hy2_tls(cfg: &Hy2TlsConfig) -> Result<ServerConfig> {
             (chain, key)
         }
         _ => {
-            let domain = cfg.self_signed_domain.clone();
+            let domain = cfg.self_signed_domain.clone().unwrap_or_else(|| "localhost".to_string());
             info!("[hy2/tls] Generating self-signed cert for: {domain}");
             let CertifiedKey { cert, key_pair } = generate_simple_self_signed(vec![domain.clone()])
                 .with_context(|| format!("self-signed cert for {domain}"))?;
