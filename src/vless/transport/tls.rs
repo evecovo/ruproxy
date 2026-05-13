@@ -11,10 +11,6 @@ use rustls::ServerConfig;
 use rustls_pemfile::{certs, private_key};
 use std::fs::File;
 use std::io::BufReader;
-use std::sync::Arc;
-use tokio::net::TcpStream;
-use tokio_rustls::server::TlsStream;
-use tokio_rustls::TlsAcceptor;
 use tracing::info;
 
 use crate::config::VlessTransportConfig;
@@ -53,19 +49,6 @@ pub fn build_vless_tls(cfg: &VlessTransportConfig) -> Result<ServerConfig> {
     server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
     Ok(server_config)
-}
-
-/// Perform the TLS handshake on a raw TcpStream.
-pub async fn accept(
-    stream: TcpStream,
-    server_config: Arc<ServerConfig>,
-) -> Result<TlsStream<TcpStream>> {
-    let acceptor = TlsAcceptor::from(server_config);
-    let tls_stream = acceptor
-        .accept(stream)
-        .await
-        .context("vless TLS handshake failed")?;
-    Ok(tls_stream)
 }
 
 fn load_certs(path: &str) -> Result<Vec<CertificateDer<'static>>> {
