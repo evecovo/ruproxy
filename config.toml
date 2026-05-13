@@ -1,23 +1,22 @@
 [log]
 level = "info"
 
-# Hysteria2 (QUIC/UDP)
 [hysteria2]
 enable = true
 listen = "0.0.0.0:443"
 
 [hysteria2.tls]
-# cert = "/etc/ssl/certs/server.crt"
-# key  = "/etc/ssl/private/server.key"
-self_signed_domain = "example.com"
+cert = "/etc/ssl/certs/server.crt"
+key  = "/etc/ssl/private/server.key"
+self_signed_domain = ""
 
 [hysteria2.auth]
 type = "password"
 password = "your-strong-password-here"
 
 [hysteria2.bandwidth]
-up   = "100 mbps"
-down = "100 mbps"
+up   = "1000 mbps"
+down = "1000 mbps"
 
 # VLESS (TCP)
 [vless]
@@ -28,8 +27,8 @@ uuid   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 [vless.transport]
 type               = "tcp"
 tls                = true
-# cert = "/etc/ssl/certs/server.crt"
-# key  = "/etc/ssl/private/server.key"
+cert = "/etc/ssl/certs/server.crt"
+key  = "/etc/ssl/private/server.key"
 self_signed_domain = "example.com"
 ws_host            = "your.domain.com"
 ws_path            = "/vless"
