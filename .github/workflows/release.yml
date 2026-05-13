@@ -47,19 +47,19 @@ jobs:
         include:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            artifact: ruproxy-linux-amd64-musl
+            artifact: ruproxy-linux-musl-amd64
             cross: true
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact: ruproxy-linux-amd64-gnu
+            artifact: ruproxy-linux-glibc-amd64
             cross: true
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
-            artifact: ruproxy-linux-arm64-musl
+            artifact: ruproxy-linux-musl-arm64
             cross: true
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact: ruproxy-linux-arm64-gnu
+            artifact: ruproxy-linux-glibc-arm64
             cross: true
 
     steps:
