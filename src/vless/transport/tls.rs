@@ -30,7 +30,10 @@ pub fn build_vless_tls(cfg: &VlessTransportConfig) -> Result<ServerConfig> {
             (chain, key)
         }
         _ => {
-            let domain = cfg.self_signed_domain.clone().unwrap_or_else(|| "localhost".to_string());
+            let domain = cfg
+                .self_signed_domain
+                .clone()
+                .unwrap_or_else(|| "localhost".to_string());
             info!("[vless/tls] Generating self-signed cert for domain: {domain}");
             let CertifiedKey { cert, key_pair } = generate_simple_self_signed(vec![domain.clone()])
                 .with_context(|| format!("failed to generate self-signed cert for {domain}"))?;

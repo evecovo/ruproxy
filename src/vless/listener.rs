@@ -1,15 +1,4 @@
 //! VLESS TCP listener.
-//!
-//! Accepts TCP connections and dispatches to the correct transport stack
-//! based on config (raw / TLS / WS / WS+TLS / Reality), then decodes the
-//! VLESS header and proxies the connection.
-//!
-//! Transport selection:
-//!   type=tcp,  tls=false  → plain TCP
-//!   type=tcp,  tls=true   → TCP + TLS
-//!   type=ws,   tls=false  → WebSocket (no TLS)
-//!   type=ws,   tls=true   → WebSocket + TLS
-//!   type=reality           → Reality (TLS camouflage + short-ID auth)
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -25,13 +14,11 @@ use crate::vless::protocol::{decode_request, encode_response, parse_uuid, CMD_TC
 use crate::vless::transport::{reality as vless_reality, tls as vless_tls, websocket as vless_ws};
 
 pub async fn run(cfg: Arc<VlessConfig>) -> Result<()> {
-    // Validate UUID at startup — fail fast.
     let uuid_bytes =
         parse_uuid(&cfg.uuid).map_err(|e| anyhow::anyhow!("vless: invalid UUID in config: {e}"))?;
 
     let transport_type = cfg.transport.r#type.as_str();
 
-    // Build TLS acceptor once at startup (shared across all connections).
     let tls_acceptor: Option<Arc<TlsAcceptor>> = match transport_type {
         "reality" => {
             let reality_cfg = cfg.transport.reality.as_ref().ok_or_else(|| {
@@ -51,8 +38,7 @@ pub async fn run(cfg: Arc<VlessConfig>) -> Result<()> {
     let listener = TcpListener::bind(addr).await?;
     info!(
         "[vless] Listening on {addr} (transport={}, tls={})",
-        transport_type,
-        cfg.transport.tls
+        transport_type, cfg.transport.tls
     );
 
     loop {
@@ -82,31 +68,27 @@ async fn handle_conn(
     let ws_host = cfg.transport.ws_host.as_deref();
 
     match transport_type {
-        // ── Reality ───────────────────────────────────────────────────────────
         "reality" => {
             debug!("[vless] {peer} → Reality");
             let reality_cfg = cfg.transport.reality.as_ref().ok_or_else(|| {
                 anyhow::anyhow!("vless: missing [vless.transport.reality] section")
             })?;
-            let acceptor = tls_acceptor
-                .ok_or_else(|| anyhow::anyhow!("vless: Reality TLS acceptor missing"))?;
+            let acceptor =
+                tls_acceptor.ok_or_else(|| anyhow::anyhow!("vless: Reality TLS acceptor missing"))?;
 
-            let reality_stream =
-                vless_reality::accept(stream, peer, reality_cfg, acceptor).await?;
+            let reality_stream = vless_reality::accept(stream, peer, reality_cfg, acceptor).await?;
             process_vless_stream(reality_stream, peer, uuid_bytes).await
         }
 
-        // ── Plain TCP ─────────────────────────────────────────────────────────
         "tcp" if !use_tls => {
             debug!("[vless] {peer} → plain TCP");
             process_vless_stream(stream, peer, uuid_bytes).await
         }
 
-        // ── TCP + TLS ─────────────────────────────────────────────────────────
         "tcp" => {
             debug!("[vless] {peer} → TCP+TLS");
-            let acceptor = tls_acceptor
-                .ok_or_else(|| anyhow::anyhow!("[vless] TLS acceptor missing"))?;
+            let acceptor =
+                tls_acceptor.ok_or_else(|| anyhow::anyhow!("[vless] TLS acceptor missing"))?;
             let tls_stream = acceptor
                 .accept(stream)
                 .await
@@ -114,18 +96,16 @@ async fn handle_conn(
             process_vless_stream(tls_stream, peer, uuid_bytes).await
         }
 
-        // ── WebSocket (no TLS) ────────────────────────────────────────────────
         "ws" if !use_tls => {
             debug!("[vless] {peer} → WS");
             let ws = vless_ws::accept_plain(stream, ws_path, ws_host).await?;
             process_vless_stream(ws, peer, uuid_bytes).await
         }
 
-        // ── WebSocket + TLS ───────────────────────────────────────────────────
         "ws" => {
             debug!("[vless] {peer} → WS+TLS");
-            let acceptor = tls_acceptor
-                .ok_or_else(|| anyhow::anyhow!("[vless] TLS acceptor missing"))?;
+            let acceptor =
+                tls_acceptor.ok_or_else(|| anyhow::anyhow!("[vless] TLS acceptor missing"))?;
             let tls_stream = acceptor
                 .accept(stream)
                 .await
@@ -138,7 +118,6 @@ async fn handle_conn(
     }
 }
 
-/// Decode the VLESS header and proxy to upstream.
 async fn process_vless_stream<S>(
     mut stream: S,
     peer: SocketAddr,
@@ -177,7 +156,6 @@ where
         }
     };
 
-    // Send VLESS response header: [version=0x00][addon_len=0x00]
     encode_response(&mut stream).await?;
 
     relay(stream, outbound, peer, &request.target).await
