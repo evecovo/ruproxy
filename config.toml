@@ -21,7 +21,6 @@ password = "your-strong-password-here"
 
 # [hysteria2.bandwidth]          # optional — omit to use unlimited
 # up   = "1000 mbps"
-# down = "1000 mbps"
 
 # [hysteria2.masquerade]         # optional
 # type = "proxy"    #proxy or none
