@@ -72,6 +72,7 @@ ring = "0.17"          # rustls crypto provider (main.rs: ring::default_provider
 aes-gcm = "0.10"           # AES-256-GCM for Session ID decryption
 chacha20poly1305 = "0.10"  # ChaCha20-Poly1305 for Session ID decryption
 hkdf = "0.12"              # HKDF for auth_key derivation
-sha2 = "0.10"              # SHA-256 for HKDF
+hmac = "0.12"              # HMAC-SHA512 for Reality certificate Signature
+sha2 = "0.10"              # SHA-256/SHA-512 for HKDF and HMAC
 
 [profile.release]
