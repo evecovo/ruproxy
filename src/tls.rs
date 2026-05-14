@@ -17,7 +17,7 @@ use crate::config::Hy2TlsConfig;
 
 /// Build rustls ServerConfig for Hysteria2 (QUIC, ALPN = "h3").
 pub fn build_hy2_tls(cfg: &Hy2TlsConfig) -> Result<ServerConfig> {
-    let (cert_chain, private_key) = match (&cfg.cert, &cfg.key) {
+    let (cert_chain, private_key) = match (&cfg.cert_path, &cfg.key_path) {
         (Some(cert_path), Some(key_path)) => {
             info!("[hy2/tls] Loading cert: {cert_path}");
             info!("[hy2/tls] Loading key : {key_path}");
