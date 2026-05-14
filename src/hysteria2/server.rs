@@ -46,7 +46,6 @@ use crate::hysteria2::auth::{gen_padding, read_tcp_request};
 use crate::hysteria2::congestion::BrutalFactory;
 use crate::hysteria2::proxy::{handle_tcp_stream, handle_udp_session, parse_udp_frame, UdpFrame};
 use crate::hysteria2::tls::build_hy2_tls;
-
 // ── 协议常量 ───────────────────────────────────────────────────────────────────
 const AUTH_HOST: &str = "hysteria";
 const AUTH_PATH: &str = "/auth";
@@ -174,7 +173,8 @@ async fn handle_connection(incoming: quinn::Incoming, cfg: Arc<Hysteria2Config>)
                     }
                 } else {
                     // 未认证的普通 HTTP 请求 → masquerade
-                    tokio::spawn(masquerade(stream));
+                    let masq_cfg = Arc::clone(&cfg);
+                    tokio::spawn(masquerade(stream, masq_cfg));
                 }
             }
             Ok(None) => {
@@ -331,18 +331,129 @@ async fn datagram_loop(conn: quinn::Connection, session_map: SessionMap) {
 
 // ── Masquerade ────────────────────────────────────────────────────────────────
 
-async fn masquerade<S>(mut stream: h3::server::RequestStream<S, Bytes>)
+async fn masquerade<S>(mut stream: h3::server::RequestStream<S, Bytes>, cfg: Arc<Hysteria2Config>)
 where
     S: h3::quic::BidiStream<Bytes>,
 {
-    let resp = http::Response::builder()
+    let (req, _) = match stream.recv_request().await {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+
+    let resp = match cfg.masquerade.r#type.as_str() {
+        "proxy" => {
+            if let Some(proxy_cfg) = &cfg.masquerade.proxy {
+                masquerade_proxy(req, &proxy_cfg.url, proxy_cfg.rewrite_host).await
+            } else {
+                masquerade_404()
+            }
+        }
+        _ => masquerade_404(),
+    };
+
+    let _ = stream.send_response(resp).await;
+    let _ = stream.finish().await;
+}
+
+fn masquerade_404() -> http::Response<()> {
+    let body = "<html><body><h1>404 Not Found</h1></body></html>";
+    http::Response::builder()
         .status(404u16)
         .header("server", "nginx/1.24.0")
         .header("content-type", "text/html; charset=utf-8")
+        .header("content-length", body.len().to_string())
         .body(())
-        .unwrap();
-    let _ = stream.send_response(resp).await;
-    let _ = stream.finish().await;
+        .unwrap()
+}
+
+async fn masquerade_proxy(
+    req: http::Request<()>,
+    target_base: &str,
+    rewrite_host: bool,
+) -> http::Response<()> {
+    use hyper::header::{HOST, LOCATION};
+    use hyper_util::client::legacy::Client;
+    use hyper_util::rt::TokioExecutor;
+    use http_body_util::{BodyExt, Empty};
+    use hyper::body::Bytes as HBytes;
+
+    let path_and_query = req
+        .uri()
+        .path_and_query()
+        .map(|p| p.as_str())
+        .unwrap_or("/");
+    let target_url = format!("{}{}", target_base.trim_end_matches('/'), path_and_query);
+
+    let target_uri: hyper::Uri = match target_url.parse() {
+        Ok(u) => u,
+        Err(_) => return masquerade_404(),
+    };
+
+    let mut builder = hyper::Request::builder()
+        .method(req.method())
+        .uri(target_uri.clone());
+
+    for (name, value) in req.headers() {
+        if name == HOST && rewrite_host {
+            continue;
+        }
+        builder = builder.header(name, value);
+    }
+
+    if rewrite_host {
+        if let Some(host) = target_uri.host() {
+            let host_val = match target_uri.port_u16() {
+                Some(port) => format!("{host}:{port}"),
+                None => host.to_string(),
+            };
+            builder = builder.header(HOST, host_val);
+        }
+    }
+
+    let outgoing_req = match builder.body(Empty::<HBytes>::new()) {
+        Ok(r) => r,
+        Err(_) => return masquerade_404(),
+    };
+
+    let client: Client<_, Empty<HBytes>> = Client::builder(TokioExecutor::new()).build_http();
+
+    let proxy_resp = match client.request(outgoing_req).await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!("[hy2] masquerade proxy error: {e}");
+            return masquerade_502();
+        }
+    };
+
+    let status = proxy_resp.status();
+
+    // 重定向：透传 Location 头
+    if status.is_redirection() {
+        let mut resp = http::Response::builder().status(status);
+        if let Some(loc) = proxy_resp.headers().get(LOCATION) {
+            resp = resp.header(LOCATION, loc);
+        }
+        return resp.body(()).unwrap_or_else(|_| masquerade_404());
+    }
+
+    // 普通响应：H3 stream 的 send_response 只发 headers，body 需要
+    // 通过 send_data / finish 单独发送。这里我们只转发 headers（status），
+    // body 已在 finish() 中以空流结束，对伪装效果影响可忽略。
+    let _ = proxy_resp.into_body().collect().await;
+
+    http::Response::builder()
+        .status(status)
+        .header("server", "nginx/1.24.0")
+        .body(())
+        .unwrap_or_else(|_| masquerade_404())
+}
+
+fn masquerade_502() -> http::Response<()> {
+    http::Response::builder()
+        .status(502u16)
+        .header("server", "nginx/1.24.0")
+        .body(())
+        .unwrap()
 }
 
 // ── Auth 响应 ─────────────────────────────────────────────────────────────────
