@@ -97,11 +97,12 @@ async fn handle_conn(
         }
 
         // ── TCP + Reality ─────────────────────────────────────────────────
+        // Reality 不使用全局 tls_acceptor：accept() 内部按连接实时生成 per-connection
+        // TLS ServerConfig（因为 Reality 证书的 Signature = HMAC-SHA512(auth_key, pub_key)，
+        // 而 auth_key 依赖客户端 ECDHE 临时公钥，每个连接不同）。
         ("tcp", Some(VlessTlsConfig::Reality(reality_cfg))) => {
             debug!("[vless] {peer} → TCP+Reality");
-            let acceptor =
-                tls_acceptor.ok_or_else(|| anyhow::anyhow!("[vless] Reality acceptor missing"))?;
-            let reality_stream = vless_reality::accept(stream, peer, reality_cfg, acceptor).await?;
+            let reality_stream = vless_reality::accept(stream, peer, reality_cfg).await?;
             process_vless_stream(reality_stream, peer, uuid_bytes).await
         }
 
@@ -128,9 +129,7 @@ async fn handle_conn(
         // ── WS + Reality ──────────────────────────────────────────────────
         ("ws", Some(VlessTlsConfig::Reality(reality_cfg))) => {
             debug!("[vless] {peer} → WS+Reality");
-            let acceptor =
-                tls_acceptor.ok_or_else(|| anyhow::anyhow!("[vless] Reality acceptor missing"))?;
-            let reality_stream = vless_reality::accept(stream, peer, reality_cfg, acceptor).await?;
+            let reality_stream = vless_reality::accept(stream, peer, reality_cfg).await?;
             let ws = vless_ws::accept_tls(reality_stream, ws_path, ws_host).await?;
             process_vless_stream(ws, peer, uuid_bytes).await
         }
