@@ -152,6 +152,7 @@ fn verify_reality_client(client_hello: &[u8], cfg: &RealityConfig) -> Result<()>
 
     let random = &client_hello[RANDOM_OFFSET..RANDOM_OFFSET + RANDOM_LEN];
 
+    // ── 1. 解码服务端 x25519 私钥 ────────────────────────────────────────────
     let private_key_bytes =
         base64_decode(&cfg.private_key).context("reality: decode private_key")?;
     anyhow::ensure!(
@@ -159,10 +160,43 @@ fn verify_reality_client(client_hello: &[u8], cfg: &RealityConfig) -> Result<()>
         "reality: private_key must be 32 bytes (got {})",
         private_key_bytes.len()
     );
+    let server_private: [u8; 32] = private_key_bytes.try_into().unwrap();
 
-    // uTLS random: [client_ecdh_pub(16)][short_id_part(16)]
-    let short_id_in_hello = &random[16..];
+    // ── 2. 从 Session ID 字段取出客户端 x25519 公钥 ──────────────────────────
+    //
+    // uTLS 把客户端 x25519 临时公钥（32 字节）写在 Session ID 字段里：
+    //   ClientHello body 起点 = RANDOM_OFFSET + RANDOM_LEN
+    //   session_id_len (1 byte) @ 该起点
+    //   session_id     (32 bytes) 紧随其后
+    let session_id_len_offset = RANDOM_OFFSET + RANDOM_LEN;
+    if client_hello.len() < session_id_len_offset + 1 {
+        bail!("ClientHello too short for session ID length");
+    }
+    let session_id_len = client_hello[session_id_len_offset] as usize;
+    if session_id_len != 32 {
+        bail!("session ID length {session_id_len} != 32, not a uTLS Reality client");
+    }
+    let session_id_offset = session_id_len_offset + 1;
+    if client_hello.len() < session_id_offset + 32 {
+        bail!("ClientHello too short for session ID data");
+    }
+    let client_pub: [u8; 32] = client_hello[session_id_offset..session_id_offset + 32]
+        .try_into()
+        .unwrap();
 
+    // ── 3. x25519 ECDH → shared_secret ───────────────────────────────────────
+    let shared_secret = x25519(&server_private, &client_pub);
+
+    // ── 4. HMAC-SHA256(key=shared_secret, data=server_name) → auth_key ───────
+    use ring::hmac;
+    let hmac_key = hmac::Key::new(hmac::HMAC_SHA256, &shared_secret);
+    let auth_tag = hmac::sign(&hmac_key, cfg.server_name.as_bytes());
+    let auth_key = auth_tag.as_ref(); // 32 bytes
+
+    // ── 5. 验证 short_id ─────────────────────────────────────────────────────
+    //
+    // 客户端：random[16..16+n] = short_id XOR auth_key[0..n]
+    // 服务端还原并比对配置中的每个 short_id。
     for sid in &cfg.short_ids {
         let sid_bytes =
             hex::decode(sid).with_context(|| format!("reality: decode short_id '{sid}'"))?;
@@ -170,13 +204,29 @@ fn verify_reality_client(client_hello: &[u8], cfg: &RealityConfig) -> Result<()>
             sid_bytes.len() <= 8,
             "reality: short_id '{sid}' too long (max 8 bytes)"
         );
-        let offset = 16 - sid_bytes.len();
-        if short_id_in_hello[offset..] == sid_bytes[..] {
+        let n = sid_bytes.len();
+        if n == 0 {
+            return Ok(()); // 空 short_id 匹配所有客户端
+        }
+        let candidate: Vec<u8> = random[16..16 + n]
+            .iter()
+            .zip(&auth_key[..n])
+            .map(|(r, k)| r ^ k)
+            .collect();
+        if candidate == sid_bytes {
             return Ok(());
         }
     }
 
     bail!("short-ID mismatch");
+}
+
+// ── x25519 scalar multiplication ─────────────────────────────────────────────
+fn x25519(server_private: &[u8; 32], client_public: &[u8; 32]) -> [u8; 32] {
+    use x25519_dalek::{PublicKey, StaticSecret};
+    let secret = StaticSecret::from(*server_private);
+    let public = PublicKey::from(*client_public);
+    secret.diffie_hellman(&public).to_bytes()
 }
 
 // ── Transparent forward to dest ───────────────────────────────────────────────
