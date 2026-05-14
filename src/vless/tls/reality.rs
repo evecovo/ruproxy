@@ -505,8 +505,8 @@ fn extract_x25519_from_key_share(record: &[u8]) -> Result<[u8; 32]> {
         let ext_len = u16::from_be_bytes([record[pos + 2], record[pos + 3]]) as usize;
         pos += 4;
         if pos + ext_len > ext_end {
-        bail!("extension 数据超出边界")
-    }
+            bail!("extension 数据超出边界")
+        }
         if ext_type == 0x0033 {
             return parse_x25519_key_share(&record[pos..pos + ext_len]);
         }
@@ -527,8 +527,8 @@ fn parse_x25519_key_share(data: &[u8]) -> Result<[u8; 32]> {
         let ke_len = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
         pos += 4;
         if pos + ke_len > end {
-        bail!("KeyShare entry 超出边界")
-    }
+            bail!("KeyShare entry 超出边界")
+        }
         if group == 0x001d && ke_len == 32 {
             let mut pub_key = [0u8; 32];
             pub_key.copy_from_slice(&data[pos..pos + 32]);
