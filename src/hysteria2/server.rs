@@ -174,7 +174,7 @@ async fn handle_connection(incoming: quinn::Incoming, cfg: Arc<Hysteria2Config>)
                 } else {
                     // 未认证的普通 HTTP 请求 → masquerade
                     let masq_cfg = Arc::clone(&cfg);
-                    tokio::spawn(masquerade(stream, masq_cfg));
+                    tokio::spawn(masquerade(req, stream, masq_cfg));
                 }
             }
             Ok(None) => {
@@ -331,15 +331,13 @@ async fn datagram_loop(conn: quinn::Connection, session_map: SessionMap) {
 
 // ── Masquerade ────────────────────────────────────────────────────────────────
 
-async fn masquerade<S>(mut stream: h3::server::RequestStream<S, Bytes>, cfg: Arc<Hysteria2Config>)
-where
+async fn masquerade<S>(
+    req: http::Request<()>,
+    mut stream: h3::server::RequestStream<S, Bytes>,
+    cfg: Arc<Hysteria2Config>,
+) where
     S: h3::quic::BidiStream<Bytes>,
 {
-    let (req, _) = match stream.recv_request().await {
-        Ok(r) => r,
-        Err(_) => return,
-    };
-
     let resp = match cfg.masquerade.r#type.as_str() {
         "proxy" => {
             if let Some(proxy_cfg) = &cfg.masquerade.proxy {
