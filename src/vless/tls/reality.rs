@@ -288,6 +288,52 @@ fn verify_reality_client(record: &[u8], cfg: &RealityConfig) -> Result<[u8; 32]>
 //
 // auth_key 每连接不同，所以必须 per-connection 生成，不能全局预建。
 
+// ── Reality 专用 SigningKey 包装器 ────────────────────────────────────────────
+//
+// 问题根源：rustls 在 TLS 1.3 握手的 CertificateVerify 阶段，会把客户端
+// ClientHello 里的 supported_signature_algorithms 扩展和服务端 SigningKey 的
+// supported_schemes() 取交集。uTLS 伪装成 Chrome 时发送的列表是真实浏览器的
+// signature_algorithms，其中 Ed25519 (0x0807) 往往排在靠后甚至不出现，导致
+// rustls 报 NoSignatureSchemesInCommon。
+//
+// Xray 的做法（handshake_server_tls13.go）：
+//   hs.sigAlg = Ed25519  // 直接强制，完全跳过 pickCertificate() 里的交集检查
+//
+// Rust 对应方案：用 with_cert_resolver 提供自定义 ResolvesServerCert，
+// 在里面返回一个 CertifiedKey，其 key 是下面这个包装器——
+// supported_schemes() 汇报所有 TLS 1.3 签名方案，实际签名仍用 Ed25519。
+// 这样 rustls 的交集检查永远能找到匹配项，行为与 Xray 一致。
+
+struct AnySchemeEd25519Key(Arc<dyn rustls::sign::SigningKey>);
+
+impl rustls::sign::SigningKey for AnySchemeEd25519Key {
+    fn choose_scheme(
+        &self,
+        _offered: &[rustls::SignatureScheme],
+    ) -> Option<Box<dyn rustls::sign::Signer>> {
+        // 无视客户端的 supported_signature_algorithms 列表，强制使用 Ed25519。
+        // 与 Xray 行为一致：handshake_server_tls13.go 直接 hs.sigAlg = Ed25519，
+        // 完全跳过 pickCertificate() 里的签名方案交集检查。
+        // Reality 客户端只验证证书里的 HMAC-SHA512，不检查 CertificateVerify 签名方案。
+        self.0.choose_scheme(&[rustls::SignatureScheme::ED25519])
+    }
+
+    fn algorithm(&self) -> rustls::SignatureAlgorithm {
+        self.0.algorithm()
+    }
+}
+
+struct AnySchemeEd25519CertResolver(Arc<rustls::sign::CertifiedKey>);
+
+impl rustls::server::ResolvesServerCert for AnySchemeEd25519CertResolver {
+    fn resolve(
+        &self,
+        _client_hello: rustls::server::ClientHello<'_>,
+    ) -> Option<Arc<rustls::sign::CertifiedKey>> {
+        Some(Arc::clone(&self.0))
+    }
+}
+
 fn build_per_connection_config(
     cfg: &RealityConfig,
     auth_key: &[u8; 32],
@@ -295,7 +341,7 @@ fn build_per_connection_config(
     use rcgen::{CertificateParams, KeyPair, PKCS_ED25519};
     use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
-    // 1. 生成 ed25519 密钥对（rcgen 0.13 API：KeyPair 同时作为证书公钥和签名密钥）
+    // 1. 生成 ed25519 密钥对
     let key_pair = KeyPair::generate_for(&PKCS_ED25519).context("rcgen 生成 ed25519 密钥对失败")?;
 
     // 2. 提取原始 ed25519 公钥（32 字节）
@@ -306,37 +352,39 @@ fn build_per_connection_config(
     }
     let pub_key_32 = &spki[spki.len() - 32..];
 
-    // 3. HMAC-SHA512(auth_key, pub_key_32) → Reality Signature
-    //    Reality 客户端 VerifyPeerCertificate 验证：
-    //      h := hmac.New(sha512.New, authKey); h.Write(pub); bytes.Equal(h.Sum(nil), cert.Signature)
+    // 3. HMAC-SHA512(auth_key, pub_key_32) → Reality 专用 Signature
     let mut mac = <Hmac<Sha512> as Mac>::new_from_slice(auth_key)
         .map_err(|_| anyhow::anyhow!("HMAC-SHA512 初始化失败"))?;
     mac.update(pub_key_32);
     let reality_sig: Vec<u8> = mac.finalize().into_bytes().to_vec(); // 64 bytes
 
-    // 4. 用 rcgen 生成 ed25519 自签名证书，然后替换 signatureValue
-    //    rcgen 0.13：CertificateParams 没有 key_pair 字段，
-    //    self_signed(&key_pair) 直接把 key_pair 作为证书公钥和签名密钥
+    // 4. 生成 ed25519 自签名证书，替换 signatureValue 为 HMAC 值
     let params = CertificateParams::new(vec![cfg.server_name.clone()])
         .context("构建 CertificateParams 失败")?;
     let cert = params.self_signed(&key_pair).context("rcgen 自签名失败")?;
-
-    // 5. 获取 DER 并将 signatureValue 替换为 HMAC 值
     let mut der_bytes = cert.der().to_vec();
     replace_signature_in_cert_der(&mut der_bytes, &reality_sig)
         .context("替换证书 signatureValue 失败")?;
 
-    // 6. 构建 rustls ServerConfig
-    //    key_pair 用于 TLS 握手签名；证书里的 signatureValue 供 Reality 客户端验证。
-    //    客户端设置了 InsecureSkipVerify=true，不走 CA 链，只走 VerifyPeerCertificate HMAC。
-    let cert_der = CertificateDer::from(der_bytes);
+    // 5. 构建 rustls SigningKey（从 PrivateKeyDer）
     let key_der = PrivateKeyDer::try_from(key_pair.serialize_der())
         .map_err(|e| anyhow::anyhow!("序列化私钥失败: {e}"))?;
+    let signing_key = rustls::crypto::ring::sign::any_supported_type(&key_der)
+        .map_err(|e| anyhow::anyhow!("构建 SigningKey 失败: {e}"))?;
 
+    // 6. 用 AnySchemeEd25519Key 包装，绕过 NoSignatureSchemesInCommon
+    let wrapped_key = Arc::new(AnySchemeEd25519Key(signing_key));
+    let cert_der = CertificateDer::from(der_bytes);
+    let certified_key = Arc::new(rustls::sign::CertifiedKey::new(
+        vec![cert_der],
+        wrapped_key,
+    ));
+
+    // 7. 通过 with_cert_resolver 注入，避免 rustls 的签名方案交集检查
+    let resolver = Arc::new(AnySchemeEd25519CertResolver(certified_key));
     let mut sc = rustls::ServerConfig::builder()
         .with_no_client_auth()
-        .with_single_cert(vec![cert_der], key_der)
-        .context("构建 rustls ServerConfig 失败")?;
+        .with_cert_resolver(resolver);
 
     sc.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     Ok(sc)
