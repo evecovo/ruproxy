@@ -30,7 +30,7 @@ tokio-rustls = "0.26"
 rcgen = "0.13"
 
 # WebSocket (VLESS ws transport)
-tokio-tungstenite = "0.21"
+tokio-tungstenite = "=0.20.1"
 futures-util = "0.3"
 
 # UUID (VLESS auth)
@@ -62,13 +62,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Reality transport dependencies
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 
-ring = "0.17"          # x25519 ECDH + HMAC-SHA256 for Reality auth
 base64 = "0.22"        # decode x25519 keys from config
 hex = "0.4"            # decode Reality short IDs from config
 libc = "0.2"           # MSG_PEEK for TLS ClientHello inspection
 
+ring = "0.17"          # rustls crypto provider (main.rs: ring::default_provider)
+
+# Reality crypto (新增，ring 本身没有 AES-GCM / HKDF 的便捷接口)
+aes-gcm = "0.10"       # AES-256-GCM for Session ID decryption
+hkdf = "0.12"          # HKDF for auth_key derivation
+sha2 = "0.10"          # SHA-256 for HKDF
+
 [profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-strip = true
