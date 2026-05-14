@@ -375,10 +375,7 @@ fn build_per_connection_config(
     // 6. 用 AnySchemeEd25519Key 包装，绕过 NoSignatureSchemesInCommon
     let wrapped_key = Arc::new(AnySchemeEd25519Key(signing_key));
     let cert_der = CertificateDer::from(der_bytes);
-    let certified_key = Arc::new(rustls::sign::CertifiedKey::new(
-        vec![cert_der],
-        wrapped_key,
-    ));
+    let certified_key = Arc::new(rustls::sign::CertifiedKey::new(vec![cert_der], wrapped_key));
 
     // 7. 通过 with_cert_resolver 注入，避免 rustls 的签名方案交集检查
     let resolver = Arc::new(AnySchemeEd25519CertResolver(certified_key));
