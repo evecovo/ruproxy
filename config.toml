@@ -11,8 +11,8 @@ level = "info"   # trace | debug | info | warn | error
 listen = "0.0.0.0:443"
 
 [hysteria2.tls]
-cert = "/etc/ssl/certs/server.crt"
-key  = "/etc/ssl/private/server.key"
+cert_path = "/etc/ssl/certs/server.crt"
+key_path  = "/etc/ssl/private/server.key"
 # self_signed_domain = "example.com"   # uncomment to auto-generate a self-signed cert
 
 [hysteria2.auth]
@@ -52,9 +52,9 @@ uuid   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 # ── Option A: standard TLS ────────────────────────────────────────────────────
 [vless.tls]
 type = "tls"
-cert = "/etc/ssl/certs/server.crt"
-key  = "/etc/ssl/private/server.key"
-# self_signed_domain = "example.com"   # alternative to cert/key
+cert_path = "/etc/ssl/certs/server.crt"
+key_path  = "/etc/ssl/private/server.key"
+# self_signed_domain = "example.com"   # alternative to cert_path/key_path
 
 # ── Option B: Reality ─────────────────────────────────────────────────────────
 # [vless.tls]
