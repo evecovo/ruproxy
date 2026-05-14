@@ -21,7 +21,11 @@ pub async fn run(cfg: Arc<VlessConfig>) -> Result<()> {
     // Build TLS acceptor once, reuse across connections.
     let tls_acceptor: Option<Arc<TlsAcceptor>> = match &cfg.tls {
         None => None,
-        Some(VlessTlsConfig::Tls { cert, key, self_signed_domain }) => {
+        Some(VlessTlsConfig::Tls {
+            cert,
+            key,
+            self_signed_domain,
+        }) => {
             let sc = vless_tls::build(
                 cert.as_deref(),
                 key.as_deref(),
@@ -97,8 +101,7 @@ async fn handle_conn(
             debug!("[vless] {peer} → TCP+Reality");
             let acceptor =
                 tls_acceptor.ok_or_else(|| anyhow::anyhow!("[vless] Reality acceptor missing"))?;
-            let reality_stream =
-                vless_reality::accept(stream, peer, reality_cfg, acceptor).await?;
+            let reality_stream = vless_reality::accept(stream, peer, reality_cfg, acceptor).await?;
             process_vless_stream(reality_stream, peer, uuid_bytes).await
         }
 
@@ -127,8 +130,7 @@ async fn handle_conn(
             debug!("[vless] {peer} → WS+Reality");
             let acceptor =
                 tls_acceptor.ok_or_else(|| anyhow::anyhow!("[vless] Reality acceptor missing"))?;
-            let reality_stream =
-                vless_reality::accept(stream, peer, reality_cfg, acceptor).await?;
+            let reality_stream = vless_reality::accept(stream, peer, reality_cfg, acceptor).await?;
             let ws = vless_ws::accept_tls(reality_stream, ws_path, ws_host).await?;
             process_vless_stream(ws, peer, uuid_bytes).await
         }
