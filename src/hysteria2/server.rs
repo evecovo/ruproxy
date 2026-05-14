@@ -42,8 +42,8 @@ use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, info, warn};
 
 use crate::config::{AuthConfig, Hysteria2Config};
-use crate::hysteria2::congestion::BrutalFactory;
 use crate::hysteria2::auth::{gen_padding, read_tcp_request};
+use crate::hysteria2::congestion::BrutalFactory;
 use crate::hysteria2::proxy::{handle_tcp_stream, handle_udp_session, parse_udp_frame, UdpFrame};
 use crate::hysteria2::tls::build_hy2_tls;
 
