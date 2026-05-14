@@ -304,6 +304,7 @@ fn verify_reality_client(record: &[u8], cfg: &RealityConfig) -> Result<[u8; 32]>
 // supported_schemes() 汇报所有 TLS 1.3 签名方案，实际签名仍用 Ed25519。
 // 这样 rustls 的交集检查永远能找到匹配项，行为与 Xray 一致。
 
+#[derive(Debug)]
 struct AnySchemeEd25519Key(Arc<dyn rustls::sign::SigningKey>);
 
 impl rustls::sign::SigningKey for AnySchemeEd25519Key {
@@ -323,6 +324,7 @@ impl rustls::sign::SigningKey for AnySchemeEd25519Key {
     }
 }
 
+#[derive(Debug)]
 struct AnySchemeEd25519CertResolver(Arc<rustls::sign::CertifiedKey>);
 
 impl rustls::server::ResolvesServerCert for AnySchemeEd25519CertResolver {
