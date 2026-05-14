@@ -207,14 +207,26 @@ fn verify_reality_client(record: &[u8], cfg: &RealityConfig) -> Result<[u8; 32]>
         let cipher = Aes256Gcm::new(aes_key);
         let nonce = Nonce::from_slice(nonce_bytes);
         cipher
-            .decrypt(nonce, Payload { msg: session_id, aad: record })
+            .decrypt(
+                nonce,
+                Payload {
+                    msg: session_id,
+                    aad: record,
+                },
+            )
             .map_err(|_| anyhow::anyhow!("AES-GCM 解密失败，非 Reality 客户端"))?
     } else {
         let cipher = ChaCha20Poly1305::new_from_slice(&auth_key)
             .map_err(|_| anyhow::anyhow!("ChaCha20 key 长度错误"))?;
         let nonce = ChaNonce::from_slice(nonce_bytes);
         cipher
-            .decrypt(nonce, Payload { msg: session_id, aad: record })
+            .decrypt(
+                nonce,
+                Payload {
+                    msg: session_id,
+                    aad: record,
+                },
+            )
             .map_err(|_| anyhow::anyhow!("ChaCha20-Poly1305 解密失败，非 Reality 客户端"))?
     };
 
@@ -261,8 +273,7 @@ fn build_per_connection_config(
     use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
     // 1. 生成 ed25519 密钥对（rcgen 封装）
-    let key_pair = KeyPair::generate_for(&PKCS_ED25519)
-        .context("rcgen 生成 ed25519 密钥对失败")?;
+    let key_pair = KeyPair::generate_for(&PKCS_ED25519).context("rcgen 生成 ed25519 密钥对失败")?;
 
     // 2. 提取原始 ed25519 公钥（32 字节）
     //    rcgen KeyPair::public_key_raw() 返回 SubjectPublicKeyInfo DER，
@@ -286,10 +297,8 @@ fn build_per_connection_config(
 
     // rcgen self_signed 需要一个签名密钥，我们传同一个 key_pair 即可
     // 但 rcgen 0.13 的 self_signed 消耗 params，需要重建
-    let key_pair2 = KeyPair::generate_for(&PKCS_ED25519)
-        .context("rcgen 生成签名密钥对失败")?;
-    let cert = params.self_signed(&key_pair2)
-        .context("rcgen 自签名失败")?;
+    let key_pair2 = KeyPair::generate_for(&PKCS_ED25519).context("rcgen 生成签名密钥对失败")?;
+    let cert = params.self_signed(&key_pair2).context("rcgen 自签名失败")?;
 
     // 5. 获取 DER 并替换 signatureValue
     let mut der_bytes = cert.der().to_vec();
@@ -404,7 +413,12 @@ fn der_encode_tlv(tag: u8, content: &[u8]) -> Vec<u8> {
     } else if len < 0x10000 {
         v.extend_from_slice(&[0x82, (len >> 8) as u8, (len & 0xff) as u8]);
     } else {
-        v.extend_from_slice(&[0x83, (len >> 16) as u8, (len >> 8) as u8, (len & 0xff) as u8]);
+        v.extend_from_slice(&[
+            0x83,
+            (len >> 16) as u8,
+            (len >> 8) as u8,
+            (len & 0xff) as u8,
+        ]);
     }
     v.extend_from_slice(content);
     v
@@ -422,7 +436,11 @@ fn der_fix_outer_sequence_length(der: &mut Vec<u8>) -> Result<()> {
     } else if new_content_len < 0x100 {
         vec![0x81, new_content_len as u8]
     } else {
-        vec![0x82, (new_content_len >> 8) as u8, (new_content_len & 0xff) as u8]
+        vec![
+            0x82,
+            (new_content_len >> 8) as u8,
+            (new_content_len & 0xff) as u8,
+        ]
     };
 
     // der[1..old_content_start] 是旧的 length field
@@ -460,25 +478,35 @@ fn cipher_suite_prefers_aes(record: &[u8]) -> bool {
 fn extract_x25519_from_key_share(record: &[u8]) -> Result<[u8; 32]> {
     let mut pos = SID_OFFSET + 32;
 
-    if pos + 2 > record.len() { bail!("record 在 cipher_suites 前截断"); }
+    if pos + 2 > record.len() {
+        bail!("record 在 cipher_suites 前截断")
+    }
     let cs_len = u16::from_be_bytes([record[pos], record[pos + 1]]) as usize;
     pos += 2 + cs_len;
 
-    if pos + 1 > record.len() { bail!("record 在 compression_methods 前截断"); }
+    if pos + 1 > record.len() {
+        bail!("record 在 compression_methods 前截断")
+    }
     let cm_len = record[pos] as usize;
     pos += 1 + cm_len;
 
-    if pos + 2 > record.len() { bail!("record 在 extensions_length 前截断"); }
+    if pos + 2 > record.len() {
+        bail!("record 在 extensions_length 前截断")
+    }
     let ext_total = u16::from_be_bytes([record[pos], record[pos + 1]]) as usize;
     pos += 2;
     let ext_end = pos + ext_total;
-    if ext_end > record.len() { bail!("extensions 超出 record 边界"); }
+    if ext_end > record.len() {
+        bail!("extensions 超出 record 边界")
+    }
 
     while pos + 4 <= ext_end {
         let ext_type = u16::from_be_bytes([record[pos], record[pos + 1]]);
         let ext_len = u16::from_be_bytes([record[pos + 2], record[pos + 3]]) as usize;
         pos += 4;
-        if pos + ext_len > ext_end { bail!("extension 数据超出边界"); }
+        if pos + ext_len > ext_end {
+        bail!("extension 数据超出边界")
+    }
         if ext_type == 0x0033 {
             return parse_x25519_key_share(&record[pos..pos + ext_len]);
         }
@@ -488,7 +516,9 @@ fn extract_x25519_from_key_share(record: &[u8]) -> Result<[u8; 32]> {
 }
 
 fn parse_x25519_key_share(data: &[u8]) -> Result<[u8; 32]> {
-    if data.len() < 2 { bail!("KeyShare data 太短"); }
+    if data.len() < 2 {
+        bail!("KeyShare data 太短")
+    }
     let shares_len = u16::from_be_bytes([data[0], data[1]]) as usize;
     let mut pos = 2;
     let end = (2 + shares_len).min(data.len());
@@ -496,7 +526,9 @@ fn parse_x25519_key_share(data: &[u8]) -> Result<[u8; 32]> {
         let group = u16::from_be_bytes([data[pos], data[pos + 1]]);
         let ke_len = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
         pos += 4;
-        if pos + ke_len > end { bail!("KeyShare entry 超出边界"); }
+        if pos + ke_len > end {
+        bail!("KeyShare entry 超出边界")
+    }
         if group == 0x001d && ke_len == 32 {
             let mut pub_key = [0u8; 32];
             pub_key.copy_from_slice(&data[pos..pos + 32]);
@@ -562,8 +594,7 @@ fn build_placeholder_config(cfg: &RealityConfig) -> Result<rustls::ServerConfig>
     use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
     let CertifiedKey { cert, key_pair } =
-        generate_simple_self_signed(vec![cfg.server_name.clone()])
-            .context("生成占位证书失败")?;
+        generate_simple_self_signed(vec![cfg.server_name.clone()]).context("生成占位证书失败")?;
     let cert_der = CertificateDer::from(cert.der().to_vec());
     let key_der = PrivateKeyDer::try_from(key_pair.serialize_der())
         .map_err(|e| anyhow::anyhow!("序列化占位私钥失败: {e}"))?;
