@@ -331,6 +331,12 @@ async fn datagram_loop(conn: quinn::Connection, session_map: SessionMap) {
 
 // ── Masquerade ────────────────────────────────────────────────────────────────
 
+/// 伪装响应：headers + body 分开持有，便于通过 H3 stream 分两步发送。
+struct MasqResponse {
+    headers: http::Response<()>,
+    body: Bytes,
+}
+
 async fn masquerade<S>(
     req: http::Request<()>,
     mut stream: h3::server::RequestStream<S, Bytes>,
@@ -349,29 +355,37 @@ async fn masquerade<S>(
         _ => masquerade_404(),
     };
 
-    let _ = stream.send_response(resp).await;
+    // send_response 只发 headers frame
+    let _ = stream.send_response(resp.headers).await;
+    // send_data 发 body frame（空 body 时跳过，避免发空 DATA frame）
+    if !resp.body.is_empty() {
+        let _ = stream.send_data(resp.body).await;
+    }
     let _ = stream.finish().await;
 }
 
-fn masquerade_404() -> http::Response<()> {
-    let body = "<html><body><h1>404 Not Found</h1></body></html>";
-    http::Response::builder()
+fn masquerade_404() -> MasqResponse {
+    let body = Bytes::from_static(b"<html><body><h1>404 Not Found</h1></body></html>");
+    let headers = http::Response::builder()
         .status(404u16)
         .header("server", "nginx/1.24.0")
         .header("content-type", "text/html; charset=utf-8")
         .header("content-length", body.len().to_string())
         .body(())
-        .unwrap()
+        .unwrap();
+    MasqResponse { headers, body }
 }
 
 async fn masquerade_proxy(
     req: http::Request<()>,
     target_base: &str,
     rewrite_host: bool,
-) -> http::Response<()> {
+) -> MasqResponse {
     use http_body_util::{BodyExt, Empty};
     use hyper::body::Bytes as HBytes;
-    use hyper::header::{HOST, LOCATION};
+    use hyper::header::{
+        CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, HOST, LOCATION, TRANSFER_ENCODING,
+    };
     use hyper_util::client::legacy::Client;
     use hyper_util::rt::TokioExecutor;
 
@@ -391,13 +405,13 @@ async fn masquerade_proxy(
         .method(req.method())
         .uri(target_uri.clone());
 
+    // 透传请求头，rewrite_host 时替换 Host
     for (name, value) in req.headers() {
         if name == HOST && rewrite_host {
             continue;
         }
         builder = builder.header(name, value);
     }
-
     if rewrite_host {
         if let Some(host) = target_uri.host() {
             let host_val = match target_uri.port_u16() {
@@ -424,34 +438,57 @@ async fn masquerade_proxy(
     };
 
     let status = proxy_resp.status();
+    let upstream_headers = proxy_resp.headers().clone();
 
-    // 重定向：透传 Location 头
+    // 重定向：透传 Location，body 为空
     if status.is_redirection() {
-        let mut resp = http::Response::builder().status(status);
-        if let Some(loc) = proxy_resp.headers().get(LOCATION) {
-            resp = resp.header(LOCATION, loc);
+        let mut resp_builder = http::Response::builder().status(status);
+        if let Some(loc) = upstream_headers.get(LOCATION) {
+            resp_builder = resp_builder.header(LOCATION, loc);
         }
-        return resp.body(()).unwrap_or_else(|_| masquerade_404());
+        let headers = resp_builder.body(()).unwrap_or_else(|_| masquerade_404().headers);
+        return MasqResponse { headers, body: Bytes::new() };
     }
 
-    // 普通响应：H3 stream 的 send_response 只发 headers，body 需要
-    // 通过 send_data / finish 单独发送。这里我们只转发 headers（status），
-    // body 已在 finish() 中以空流结束，对伪装效果影响可忽略。
-    let _ = proxy_resp.into_body().collect().await;
+    // 读取上游 body
+    let body_bytes = match proxy_resp.into_body().collect().await {
+        Ok(collected) => collected.to_bytes(),
+        Err(e) => {
+            warn!("[hy2] masquerade body read error: {e}");
+            return masquerade_502();
+        }
+    };
 
-    http::Response::builder()
-        .status(status)
-        .header("server", "nginx/1.24.0")
-        .body(())
-        .unwrap_or_else(|_| masquerade_404())
+    // 构造响应头：透传 Content-Type / Content-Encoding，
+    // Content-Length 用实际 body 长度重新计算（上游可能是 chunked）。
+    // 过滤掉 Transfer-Encoding：H3 不用 chunked，长度由 DATA frame 决定。
+    let mut resp_builder = http::Response::builder().status(status);
+    for (name, value) in &upstream_headers {
+        if name == TRANSFER_ENCODING || name == CONTENT_LENGTH {
+            continue; // 重新算
+        }
+        resp_builder = resp_builder.header(name, value);
+    }
+    // 如果上游没有 Content-Type，补一个通用类型避免浏览器乱猜
+    if !upstream_headers.contains_key(CONTENT_TYPE) {
+        resp_builder = resp_builder.header(CONTENT_TYPE, "application/octet-stream");
+    }
+    resp_builder = resp_builder.header(CONTENT_LENGTH, body_bytes.len().to_string());
+
+    let headers = resp_builder.body(()).unwrap_or_else(|_| masquerade_404().headers);
+    MasqResponse { headers, body: body_bytes }
 }
 
-fn masquerade_502() -> http::Response<()> {
-    http::Response::builder()
+fn masquerade_502() -> MasqResponse {
+    let body = Bytes::from_static(b"<html><body><h1>502 Bad Gateway</h1></body></html>");
+    let headers = http::Response::builder()
         .status(502u16)
         .header("server", "nginx/1.24.0")
+        .header("content-type", "text/html; charset=utf-8")
+        .header("content-length", body.len().to_string())
         .body(())
-        .unwrap()
+        .unwrap();
+    MasqResponse { headers, body }
 }
 
 // ── Auth 响应 ─────────────────────────────────────────────────────────────────
