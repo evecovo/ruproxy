@@ -60,6 +60,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Reality transport dependencies
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+
 ring = "0.17"          # x25519 ECDH + HMAC-SHA256 for Reality auth
 base64 = "0.22"        # decode x25519 keys from config
 hex = "0.4"            # decode Reality short IDs from config
