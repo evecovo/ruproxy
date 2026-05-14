@@ -16,9 +16,9 @@
 //!   2. raw_auth_key = x25519(server_private, ecdhe_pub)
 //!   3. auth_key     = HKDF-SHA256(ikm=raw_auth_key, salt=random[:20], info="REALITY")
 //!   4. 用 AES-256-GCM 解密 Session ID：
-//!        nonce      = random[20:32]（12 字节）
-//!        AAD        = 整个 ClientHello record（含 TLS record header）
-//!        plaintext  = AES-GCM-Decrypt(key=auth_key, nonce, ciphertext=session_id)
+//!     - nonce     = random[20:32]（12 字节）
+//!     - AAD       = 整个 ClientHello record（含 TLS record header）
+//!     - plaintext = AES-GCM-Decrypt(key=auth_key, nonce, ciphertext=session_id)
 //!   5. 解密后的 plaintext[8:8+n] 即为 short_id，与配置比对
 
 use std::net::SocketAddr;
