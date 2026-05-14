@@ -27,7 +27,7 @@ use std::sync::Arc;
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use anyhow::{bail, Context, Result};
-use chacha20poly1305::{ChaCha20Poly1305, Key as ChaKey, Nonce as ChaNonce};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChaNonce};
 use hkdf::Hkdf;
 use sha2::Sha256;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -213,8 +213,8 @@ fn verify_reality_client(record: &[u8], cfg: &RealityConfig) -> Result<()> {
             )
             .map_err(|_| anyhow::anyhow!("AES-GCM 解密失败，非 Reality 客户端"))?
     } else {
-        let cha_key = ChaKey::<ChaCha20Poly1305>::from_slice(&auth_key);
-        let cipher = ChaCha20Poly1305::new(cha_key);
+        let cipher = ChaCha20Poly1305::new_from_slice(&auth_key)
+            .map_err(|_| anyhow::anyhow!("ChaCha20 key 长度错误"))?;
         let nonce = ChaNonce::from_slice(nonce_bytes);
         cipher
             .decrypt(
