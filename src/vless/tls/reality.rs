@@ -217,10 +217,13 @@ fn verify_reality_client(record: &[u8], cfg: &RealityConfig) -> Result<[u8; 32]>
     //   2. AAD 中 session_id 字段没有清零，Xray 在解密前先把它清零
     //
     // 修复：把 record[RECORD_HDR..] 复制出来，将 session_id 部分清零，作为 AAD。
-    let mut aad = record[RECORD_HDR..].to_vec(); // 去掉 5 字节 TLS record 头
+    // 去掉 5 字节 TLS record 头
+    let mut aad = record[RECORD_HDR..].to_vec();
     // session_id 在 aad 中的偏移 = 原 SID_OFFSET - RECORD_HDR
-    let aad_sid_start = SID_OFFSET - RECORD_HDR; // HANDSHAKE_HDR + LEGACY_VER_LEN + RANDOM_LEN + 1 = 39
-    aad[aad_sid_start..aad_sid_start + 32].fill(0); // 将 session_id 清零
+    // = HANDSHAKE_HDR + LEGACY_VER_LEN + RANDOM_LEN + 1 = 39
+    let aad_sid_start = SID_OFFSET - RECORD_HDR;
+    // 将 session_id 清零
+    aad[aad_sid_start..aad_sid_start + 32].fill(0);
 
     let plaintext = if use_aes {
         let aes_key = Key::<Aes256Gcm>::from_slice(&auth_key);
