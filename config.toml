@@ -24,7 +24,7 @@ password = "your-strong-password-here"
 # down = "1000 mbps"
 
 # [hysteria2.masquerade]         # optional
-# type = "proxy"
+# type = "proxy"    #proxy or none
 # [hysteria2.masquerade.proxy]
 # url          = "https://example.com"
 # rewrite_host = true
