@@ -384,7 +384,7 @@ async fn masquerade_proxy(
     use http_body_util::{BodyExt, Empty};
     use hyper::body::Bytes as HBytes;
     use hyper::header::{
-        CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, HOST, LOCATION, TRANSFER_ENCODING,
+        CONTENT_LENGTH, CONTENT_TYPE, HOST, LOCATION, TRANSFER_ENCODING,
     };
     use hyper_util::client::legacy::Client;
     use hyper_util::rt::TokioExecutor;
