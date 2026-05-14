@@ -7,7 +7,6 @@
 level = "info"   # trace | debug | info | warn | error
 
 # ── Hysteria2 ─────────────────────────────────────────────────────────────────
-# Remove or comment out this entire section to disable Hysteria2.
 [hysteria2]
 listen = "0.0.0.0:443"
 
@@ -30,33 +29,38 @@ password = "your-strong-password-here"
 # url          = "https://example.com"
 # rewrite_host = true
 
-# ── VLESS (TCP + TLS) ─────────────────────────────────────────────────────────
+# ── VLESS ─────────────────────────────────────────────────────────────────────
 # Remove or comment out this entire section to disable VLESS.
 [vless]
 listen = "0.0.0.0:8443"
 uuid   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
-[vless.transport]
-type = "tcp"
-tls  = true
-cert = "/etc/ssl/certs/server.crt"
-key  = "/etc/ssl/private/server.key"
-# self_signed_domain = "example.com"  # uncomment to auto-generate a self-signed cert
+# Transport layer: tcp (default, can omit) or ws.
+# Controls how bytes are carried — independent of TLS.
+# [vless.transport]
+# type    = "tcp"    # tcp | ws
 
-# ── Alternative: VLESS + WebSocket ───────────────────────────────────────────
+# For WebSocket:
 # [vless.transport]
 # type    = "ws"
-# tls     = false        # set true if terminating TLS yourself
 # ws_path = "/vless"
 # ws_host = "your.domain.com"   # optional: enforce Host header
 
-# ── Alternative: VLESS + Reality ─────────────────────────────────────────────
-# [vless.transport]
-# type = "reality"          # tls 字段不可与 reality 同时使用，Reality 内部管理 TLS
-#
-# [vless.transport.reality]
+# TLS layer: omit entirely for plaintext.
+# Two mutually exclusive types:
+
+# ── Option A: standard TLS ────────────────────────────────────────────────────
+[vless.tls]
+type = "tls"
+cert = "/etc/ssl/certs/server.crt"
+key  = "/etc/ssl/private/server.key"
+# self_signed_domain = "example.com"   # alternative to cert/key
+
+# ── Option B: Reality ─────────────────────────────────────────────────────────
+# [vless.tls]
+# type        = "reality"
 # private_key = "<base64-encoded x25519 private key>"
 # public_key  = "<base64-encoded x25519 public key>"
-# short_ids   = ["abcd1234", "ef567890"]   # hex, 0-16 chars each
-# dest        = "example.com:443"           # impersonation target
-# server_name = "example.com"              # SNI clients send
+# short_ids   = ["abcd1234", "ef567890"]
+# dest        = "example.com:443"
+# server_name = "example.com"

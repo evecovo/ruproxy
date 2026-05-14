@@ -1,0 +1,8 @@
+# Minimal: VLESS + WebSocket, no TLS (behind nginx/CDN)
+[vless]
+listen = "127.0.0.1:8080"
+uuid   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+[vless.transport]
+type    = "ws"
+ws_path = "/vless"

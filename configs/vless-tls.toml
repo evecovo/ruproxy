@@ -1,0 +1,8 @@
+# Minimal: VLESS + standard TLS (TCP transport, default)
+[vless]
+listen = "0.0.0.0:8443"
+uuid   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+[vless.tls]
+type               = "tls"
+self_signed_domain = "example.com"
