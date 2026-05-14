@@ -61,6 +61,6 @@ key_path  = "/etc/ssl/private/server.key"
 # type        = "reality"
 # private_key = "<base64-encoded x25519 private key>"
 # public_key  = "<base64-encoded x25519 public key>"
-# short_ids   = ["abcd1234", "ef567890"]
+# short_ids   = ["ef567890"]
 # dest        = "example.com:443"
 # server_name = "example.com"
