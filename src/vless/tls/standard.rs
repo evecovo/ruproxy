@@ -30,9 +30,7 @@ pub fn build(
             (chain, key)
         }
         _ => {
-            let domain = self_signed_domain
-                .unwrap_or("localhost")
-                .to_string();
+            let domain = self_signed_domain.unwrap_or("localhost").to_string();
             info!("[vless/tls] Generating self-signed cert for domain: {domain}");
             let CertifiedKey { cert, key_pair } = generate_simple_self_signed(vec![domain.clone()])
                 .with_context(|| format!("failed to generate self-signed cert for {domain}"))?;
