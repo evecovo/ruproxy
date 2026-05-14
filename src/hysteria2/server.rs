@@ -446,8 +446,13 @@ async fn masquerade_proxy(
         if let Some(loc) = upstream_headers.get(LOCATION) {
             resp_builder = resp_builder.header(LOCATION, loc);
         }
-        let headers = resp_builder.body(()).unwrap_or_else(|_| masquerade_404().headers);
-        return MasqResponse { headers, body: Bytes::new() };
+        let headers = resp_builder
+            .body(())
+            .unwrap_or_else(|_| masquerade_404().headers);
+        return MasqResponse {
+            headers,
+            body: Bytes::new(),
+        };
     }
 
     // 读取上游 body
@@ -475,8 +480,13 @@ async fn masquerade_proxy(
     }
     resp_builder = resp_builder.header(CONTENT_LENGTH, body_bytes.len().to_string());
 
-    let headers = resp_builder.body(()).unwrap_or_else(|_| masquerade_404().headers);
-    MasqResponse { headers, body: body_bytes }
+    let headers = resp_builder
+        .body(())
+        .unwrap_or_else(|_| masquerade_404().headers);
+    MasqResponse {
+        headers,
+        body: body_bytes,
+    }
 }
 
 fn masquerade_502() -> MasqResponse {
