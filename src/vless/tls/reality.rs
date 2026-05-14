@@ -15,10 +15,10 @@
 //!   1. 从 KeyShare 扩展提取客户端 x25519 临时公钥（ecdhe_pub）
 //!   2. raw_auth_key = x25519(server_private, ecdhe_pub)
 //!   3. auth_key     = HKDF-SHA256(ikm=raw_auth_key, salt=random[:20], info="REALITY")
-//!   4. 用 AES-256-GCM 解密 Session ID：
+//!   4. 根据 cipher suites 选择 AEAD 算法（AES-GCM 或 ChaCha20-Poly1305）解密 Session ID：
 //!      - nonce     = random[20:32]（12 字节）
 //!      - AAD       = 整个 ClientHello record（含 TLS record header）
-//!      - plaintext = AES-GCM-Decrypt(key=auth_key, nonce, ciphertext=session_id)
+//!      - plaintext = AEAD-Decrypt(key=auth_key, nonce, ciphertext=session_id)
 //!   5. 解密后的 plaintext[8:8+n] 即为 short_id，与配置比对
 
 use std::net::SocketAddr;
@@ -26,6 +26,7 @@ use std::sync::Arc;
 
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
+use chacha20poly1305::{ChaCha20Poly1305, Key as ChaKey, Nonce as ChaNonce};
 use anyhow::{bail, Context, Result};
 use hkdf::Hkdf;
 use sha2::Sha256;
@@ -186,24 +187,33 @@ fn verify_reality_client(record: &[u8], cfg: &RealityConfig) -> Result<()> {
     hk.expand(b"REALITY", &mut auth_key)
         .map_err(|_| anyhow::anyhow!("HKDF expand 失败"))?;
 
-    // ── 步骤 4：AES-256-GCM 解密 Session ID ──────────────────────────────────
+    // ── 步骤 4：AEAD 解密 Session ID ─────────────────────────────────────────
     //   key    = auth_key（32 字节）
     //   nonce  = random[20:32]（12 字节）
     //   AAD    = 整个 TLS record（含 record header）
-    //   密文   = session_id（32 字节 = 16 字节明文 + 16 字节 GCM tag）
-    let aes_key = Key::<Aes256Gcm>::from_slice(&auth_key);
-    let cipher = Aes256Gcm::new(aes_key);
-    let nonce = Nonce::from_slice(&random[20..32]);
+    //   密文   = session_id（32 字节 = 16 字节明文 + 16 字节 tag）
+    //
+    //   算法选择：与 Xray/sing-box 保持一致：
+    //     - 若客户端 cipher suites 中 AES-GCM 排在 ChaCha20 前面 → AES-256-GCM
+    //     - 否则 → ChaCha20-Poly1305
+    let nonce_bytes = &random[20..32];
+    let use_aes = cipher_suite_prefers_aes(record);
 
-    let plaintext = cipher
-        .decrypt(
-            nonce,
-            Payload {
-                msg: session_id,
-                aad: record,
-            },
-        )
-        .map_err(|_| anyhow::anyhow!("AES-GCM 解密失败，非 Reality 客户端"))?;
+    let plaintext = if use_aes {
+        let aes_key = Key::<Aes256Gcm>::from_slice(&auth_key);
+        let cipher = Aes256Gcm::new(aes_key);
+        let nonce = Nonce::from_slice(nonce_bytes);
+        cipher
+            .decrypt(nonce, Payload { msg: session_id, aad: record })
+            .map_err(|_| anyhow::anyhow!("AES-GCM 解密失败，非 Reality 客户端"))?
+    } else {
+        let cha_key = ChaKey::<ChaCha20Poly1305>::from_slice(&auth_key);
+        let cipher = ChaCha20Poly1305::new(cha_key);
+        let nonce = ChaNonce::from_slice(nonce_bytes);
+        cipher
+            .decrypt(nonce, Payload { msg: session_id, aad: record })
+            .map_err(|_| anyhow::anyhow!("ChaCha20-Poly1305 解密失败，非 Reality 客户端"))?
+    };
 
     // 解密后 plaintext 为 16 字节：
     //   [0..8]    = 客户端时间戳等（服务端不验证）
@@ -226,6 +236,42 @@ fn verify_reality_client(record: &[u8], cfg: &RealityConfig) -> Result<()> {
     }
 
     bail!("short_id 不匹配")
+}
+
+// ── 判断客户端是否首选 AES-GCM ───────────────────────────────────────────────
+//
+// 与 Xray/sing-box 逻辑一致：遍历 cipher suites，看 AES-GCM 系列（0x1301/0x1302/
+// 0x009c/0x009d 等）是否在 ChaCha20（0x1303）之前出现。
+// 若找不到任何已知算法，默认使用 AES-GCM。
+
+fn cipher_suite_prefers_aes(record: &[u8]) -> bool {
+    let pos = SID_OFFSET + 32; // cipher_suites 紧跟在 session_id 之后
+    if pos + 2 > record.len() {
+        return true;
+    }
+    let cs_len = u16::from_be_bytes([record[pos], record[pos + 1]]) as usize;
+    let cs_start = pos + 2;
+    if cs_start + cs_len > record.len() || cs_len < 2 {
+        return true;
+    }
+
+    let mut i = cs_start;
+    while i + 1 < cs_start + cs_len {
+        let suite = u16::from_be_bytes([record[i], record[i + 1]]);
+        match suite {
+            // AES-GCM cipher suites
+            0x1301 | 0x1302 | 0x009c | 0x009d | 0xc02b | 0xc02c | 0xc02f | 0xc030 => {
+                return true;
+            }
+            // ChaCha20-Poly1305
+            0x1303 | 0xcca8 | 0xcca9 => {
+                return false;
+            }
+            _ => {}
+        }
+        i += 2;
+    }
+    true // 默认 AES
 }
 
 // ── 从 KeyShare 扩展提取 x25519 公钥 ─────────────────────────────────────────
