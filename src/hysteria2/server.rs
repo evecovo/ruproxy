@@ -371,11 +371,11 @@ async fn masquerade_proxy(
     target_base: &str,
     rewrite_host: bool,
 ) -> http::Response<()> {
+    use http_body_util::{BodyExt, Empty};
+    use hyper::body::Bytes as HBytes;
     use hyper::header::{HOST, LOCATION};
     use hyper_util::client::legacy::Client;
     use hyper_util::rt::TokioExecutor;
-    use http_body_util::{BodyExt, Empty};
-    use hyper::body::Bytes as HBytes;
 
     let path_and_query = req
         .uri()
