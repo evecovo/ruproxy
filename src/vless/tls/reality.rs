@@ -202,6 +202,26 @@ fn verify_reality_client(record: &[u8], cfg: &RealityConfig) -> Result<[u8; 32]>
     let nonce_bytes = &random[20..32];
     let use_aes = cipher_suite_prefers_aes(record);
 
+    // ── 关键修复：构造与 Xray 完全一致的 AAD ──────────────────────────────
+    //
+    // Xray（tls.go）的 aead.Open 调用：
+    //   aead.Open(plainText[:0], hs.clientHello.random[20:], ciphertext, hs.clientHello.original)
+    //
+    // 其中 hs.clientHello.original 是从 Handshake type byte (0x01) 开始的数据，
+    // 即 record[RECORD_HDR..]（不含 5 字节 TLS record 头），
+    // 并且在调用前已将 sessionId 字段清零：
+    //   copy(hs.clientHello.sessionId, plainText)  // plainText 是全零切片
+    //
+    // ruproxy 原代码的两个 AAD 错误：
+    //   1. 用了 record（含 5 字节 TLS record header），Xray 用的是 record[5..]
+    //   2. AAD 中 session_id 字段没有清零，Xray 在解密前先把它清零
+    //
+    // 修复：把 record[RECORD_HDR..] 复制出来，将 session_id 部分清零，作为 AAD。
+    let mut aad = record[RECORD_HDR..].to_vec(); // 去掉 5 字节 TLS record 头
+    // session_id 在 aad 中的偏移 = 原 SID_OFFSET - RECORD_HDR
+    let aad_sid_start = SID_OFFSET - RECORD_HDR; // HANDSHAKE_HDR + LEGACY_VER_LEN + RANDOM_LEN + 1 = 39
+    aad[aad_sid_start..aad_sid_start + 32].fill(0); // 将 session_id 清零
+
     let plaintext = if use_aes {
         let aes_key = Key::<Aes256Gcm>::from_slice(&auth_key);
         let cipher = Aes256Gcm::new(aes_key);
@@ -211,7 +231,7 @@ fn verify_reality_client(record: &[u8], cfg: &RealityConfig) -> Result<[u8; 32]>
                 nonce,
                 Payload {
                     msg: session_id,
-                    aad: record,
+                    aad: &aad,
                 },
             )
             .map_err(|_| anyhow::anyhow!("AES-GCM 解密失败，非 Reality 客户端"))?
@@ -224,7 +244,7 @@ fn verify_reality_client(record: &[u8], cfg: &RealityConfig) -> Result<[u8; 32]>
                 nonce,
                 Payload {
                     msg: session_id,
-                    aad: record,
+                    aad: &aad,
                 },
             )
             .map_err(|_| anyhow::anyhow!("ChaCha20-Poly1305 解密失败，非 Reality 客户端"))?
@@ -519,6 +539,11 @@ fn parse_x25519_key_share(data: &[u8]) -> Result<[u8; 32]> {
     let shares_len = u16::from_be_bytes([data[0], data[1]]) as usize;
     let mut pos = 2;
     let end = (2 + shares_len).min(data.len());
+
+    // 两遍扫描：优先 x25519 (0x001d)，兼容 X25519MLKEM768 (0x11ec) 末尾的 x25519 部分
+    // 与 Xray tls.go 行为一致
+    let mut mlkem_x25519: Option<[u8; 32]> = None;
+
     while pos + 4 <= end {
         let group = u16::from_be_bytes([data[pos], data[pos + 1]]);
         let ke_len = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
@@ -531,9 +556,19 @@ fn parse_x25519_key_share(data: &[u8]) -> Result<[u8; 32]> {
             pub_key.copy_from_slice(&data[pos..pos + 32]);
             return Ok(pub_key);
         }
+        // X25519MLKEM768 (0x11ec): 前 1088 字节是 ML-KEM 封装密钥，末尾 32 字节是 x25519
+        if group == 0x11ec && ke_len >= 1088 + 32 {
+            let x25519_offset = ke_len - 32;
+            let mut pub_key = [0u8; 32];
+            pub_key.copy_from_slice(&data[pos + x25519_offset..pos + x25519_offset + 32]);
+            mlkem_x25519 = Some(pub_key);
+        }
         pos += ke_len;
     }
-    bail!("KeyShare 中未找到 x25519（0x001d）")
+    if let Some(key) = mlkem_x25519 {
+        return Ok(key);
+    }
+    bail!("KeyShare 中未找到 x25519（0x001d）或 X25519MLKEM768（0x11ec）")
 }
 
 // ── x25519 DH ─────────────────────────────────────────────────────────────────
