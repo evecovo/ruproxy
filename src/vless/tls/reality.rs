@@ -138,7 +138,7 @@ const LEGACY_VER_LEN: usize = 2;
 const RANDOM_OFFSET: usize = RECORD_HDR + HANDSHAKE_HDR + LEGACY_VER_LEN; // 11
 const RANDOM_LEN: usize = 32;
 const SID_LEN_OFFSET: usize = RANDOM_OFFSET + RANDOM_LEN; // 43
-const SID_OFFSET: usize = SID_LEN_OFFSET + 1;             // 44
+const SID_OFFSET: usize = SID_LEN_OFFSET + 1; // 44
 
 // ── 核心验证逻辑 ──────────────────────────────────────────────────────────────
 
@@ -164,12 +164,11 @@ fn verify_reality_client(record: &[u8], cfg: &RealityConfig) -> Result<()> {
     let session_id = &record[SID_OFFSET..SID_OFFSET + 32];
 
     // ── 步骤 1：从 KeyShare 扩展提取客户端 x25519 ECDHE 公钥 ─────────────────
-    let ecdhe_pub = extract_x25519_from_key_share(record)
-        .context("从 KeyShare 扩展提取 x25519 公钥失败")?;
+    let ecdhe_pub =
+        extract_x25519_from_key_share(record).context("从 KeyShare 扩展提取 x25519 公钥失败")?;
 
     // ── 步骤 2：x25519 ECDH → raw_auth_key ───────────────────────────────────
-    let priv_bytes = base64_url_decode(&cfg.private_key)
-        .context("解码 private_key")?;
+    let priv_bytes = base64_url_decode(&cfg.private_key).context("解码 private_key")?;
     anyhow::ensure!(
         priv_bytes.len() == 32,
         "private_key 须为 32 字节（实际 {} 字节）",
@@ -212,8 +211,8 @@ fn verify_reality_client(record: &[u8], cfg: &RealityConfig) -> Result<()> {
 
     // ── 步骤 5：比对 short_id ─────────────────────────────────────────────────
     for sid_hex in &cfg.short_ids {
-        let sid_bytes = hex::decode(sid_hex)
-            .with_context(|| format!("解码 short_id '{sid_hex}'"))?;
+        let sid_bytes =
+            hex::decode(sid_hex).with_context(|| format!("解码 short_id '{sid_hex}'"))?;
         anyhow::ensure!(sid_bytes.len() <= 8, "short_id '{sid_hex}' 超过 8 字节");
 
         let n = sid_bytes.len();
@@ -350,10 +349,7 @@ pub fn build(cfg: &RealityConfig) -> Result<rustls::ServerConfig> {
     use rcgen::{generate_simple_self_signed, CertifiedKey};
     use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
-    info!(
-        "[reality/tls] 为 SNI '{}' 生成自签名证书",
-        cfg.server_name
-    );
+    info!("[reality/tls] 为 SNI '{}' 生成自签名证书", cfg.server_name);
 
     let CertifiedKey { cert, key_pair } =
         generate_simple_self_signed(vec![cfg.server_name.clone()])
