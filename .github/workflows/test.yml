@@ -48,10 +48,6 @@ jobs:
             os: ubuntu-latest
             artifact: ruproxy-linux-amd64
             cross: true
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
-            artifact: ruproxy-linux-arm64
-            cross: true
 
     steps:
       - uses: actions/checkout@v4
