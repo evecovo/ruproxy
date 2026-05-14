@@ -272,45 +272,42 @@ fn build_per_connection_config(
     use rcgen::{CertificateParams, KeyPair, PKCS_ED25519};
     use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
-    // 1. 生成 ed25519 密钥对（rcgen 封装）
+    // 1. 生成 ed25519 密钥对（rcgen 0.13 API：KeyPair 同时作为证书公钥和签名密钥）
     let key_pair = KeyPair::generate_for(&PKCS_ED25519).context("rcgen 生成 ed25519 密钥对失败")?;
 
     // 2. 提取原始 ed25519 公钥（32 字节）
-    //    rcgen KeyPair::public_key_raw() 返回 SubjectPublicKeyInfo DER，
-    //    ed25519 的原始公钥在 SPKI 的最后 32 字节
+    //    public_key_raw() 返回 SubjectPublicKeyInfo DER，ed25519 原始公钥在末尾 32 字节
     let spki = key_pair.public_key_raw();
     if spki.len() < 32 {
         bail!("ed25519 SPKI 太短：{} bytes", spki.len());
     }
-    let pub_key_32 = &spki[spki.len() - 32..]; // SubjectPublicKey BIT STRING 内容
+    let pub_key_32 = &spki[spki.len() - 32..];
 
     // 3. HMAC-SHA512(auth_key, pub_key_32) → Reality Signature
+    //    Reality 客户端 VerifyPeerCertificate 验证：
+    //      h := hmac.New(sha512.New, authKey); h.Write(pub); bytes.Equal(h.Sum(nil), cert.Signature)
     let mut mac = <Hmac<Sha512> as Mac>::new_from_slice(auth_key)
         .map_err(|_| anyhow::anyhow!("HMAC-SHA512 初始化失败"))?;
     mac.update(pub_key_32);
     let reality_sig: Vec<u8> = mac.finalize().into_bytes().to_vec(); // 64 bytes
 
-    // 4. 用 rcgen 生成基础 ed25519 自签名证书，然后替换 signatureValue
-    let mut params = CertificateParams::new(vec![cfg.server_name.clone()])
+    // 4. 用 rcgen 生成 ed25519 自签名证书，然后替换 signatureValue
+    //    rcgen 0.13：CertificateParams 没有 key_pair 字段，
+    //    self_signed(&key_pair) 直接把 key_pair 作为证书公钥和签名密钥
+    let params = CertificateParams::new(vec![cfg.server_name.clone()])
         .context("构建 CertificateParams 失败")?;
-    params.key_pair = Some(key_pair);
+    let cert = params.self_signed(&key_pair).context("rcgen 自签名失败")?;
 
-    // rcgen self_signed 需要一个签名密钥，我们传同一个 key_pair 即可
-    // 但 rcgen 0.13 的 self_signed 消耗 params，需要重建
-    let key_pair2 = KeyPair::generate_for(&PKCS_ED25519).context("rcgen 生成签名密钥对失败")?;
-    let cert = params.self_signed(&key_pair2).context("rcgen 自签名失败")?;
-
-    // 5. 获取 DER 并替换 signatureValue
+    // 5. 获取 DER 并将 signatureValue 替换为 HMAC 值
     let mut der_bytes = cert.der().to_vec();
     replace_signature_in_cert_der(&mut der_bytes, &reality_sig)
         .context("替换证书 signatureValue 失败")?;
 
     // 6. 构建 rustls ServerConfig
-    //    注意：rustls 会用 key_pair2 来真正签名握手消息（TLS 层），
-    //    证书里的 signatureValue 只是给 Reality 客户端 VerifyPeerCertificate 看的。
-    //    客户端设置了 InsecureSkipVerify=true，不做 CA 链验证，只做 HMAC 验证。
+    //    key_pair 用于 TLS 握手签名；证书里的 signatureValue 供 Reality 客户端验证。
+    //    客户端设置了 InsecureSkipVerify=true，不走 CA 链，只走 VerifyPeerCertificate HMAC。
     let cert_der = CertificateDer::from(der_bytes);
-    let key_der = PrivateKeyDer::try_from(key_pair2.serialize_der())
+    let key_der = PrivateKeyDer::try_from(key_pair.serialize_der())
         .map_err(|e| anyhow::anyhow!("序列化私钥失败: {e}"))?;
 
     let mut sc = rustls::ServerConfig::builder()
