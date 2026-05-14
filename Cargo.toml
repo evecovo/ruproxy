@@ -69,8 +69,9 @@ libc = "0.2"           # MSG_PEEK for TLS ClientHello inspection
 ring = "0.17"          # rustls crypto provider (main.rs: ring::default_provider)
 
 # Reality crypto (新增，ring 本身没有 AES-GCM / HKDF 的便捷接口)
-aes-gcm = "0.10"       # AES-256-GCM for Session ID decryption
-hkdf = "0.12"          # HKDF for auth_key derivation
-sha2 = "0.10"          # SHA-256 for HKDF
+aes-gcm = "0.10"           # AES-256-GCM for Session ID decryption
+chacha20poly1305 = "0.10"  # ChaCha20-Poly1305 for Session ID decryption
+hkdf = "0.12"              # HKDF for auth_key derivation
+sha2 = "0.10"              # SHA-256 for HKDF
 
 [profile.release]
