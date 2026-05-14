@@ -26,8 +26,8 @@ use std::sync::Arc;
 
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
-use chacha20poly1305::{ChaCha20Poly1305, Key as ChaKey, Nonce as ChaNonce};
 use anyhow::{bail, Context, Result};
+use chacha20poly1305::{ChaCha20Poly1305, Key as ChaKey, Nonce as ChaNonce};
 use hkdf::Hkdf;
 use sha2::Sha256;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -204,14 +204,26 @@ fn verify_reality_client(record: &[u8], cfg: &RealityConfig) -> Result<()> {
         let cipher = Aes256Gcm::new(aes_key);
         let nonce = Nonce::from_slice(nonce_bytes);
         cipher
-            .decrypt(nonce, Payload { msg: session_id, aad: record })
+            .decrypt(
+                nonce,
+                Payload {
+                    msg: session_id,
+                    aad: record,
+                },
+            )
             .map_err(|_| anyhow::anyhow!("AES-GCM 解密失败，非 Reality 客户端"))?
     } else {
         let cha_key = ChaKey::<ChaCha20Poly1305>::from_slice(&auth_key);
         let cipher = ChaCha20Poly1305::new(cha_key);
         let nonce = ChaNonce::from_slice(nonce_bytes);
         cipher
-            .decrypt(nonce, Payload { msg: session_id, aad: record })
+            .decrypt(
+                nonce,
+                Payload {
+                    msg: session_id,
+                    aad: record,
+                },
+            )
             .map_err(|_| anyhow::anyhow!("ChaCha20-Poly1305 解密失败，非 Reality 客户端"))?
     };
 
@@ -241,7 +253,7 @@ fn verify_reality_client(record: &[u8], cfg: &RealityConfig) -> Result<()> {
 // ── 判断客户端是否首选 AES-GCM ───────────────────────────────────────────────
 //
 // 与 Xray/sing-box 逻辑一致：遍历 cipher suites，看 AES-GCM 系列（0x1301/0x1302/
-// 0x009c/0x009d 等）是否在 ChaCha20（0x1303）之前出现。
+// 0x009c/0x009d 等）是否在 ChaCha20（0x1303/0xcca8/0xcca9）之前出现。
 // 若找不到任何已知算法，默认使用 AES-GCM。
 
 fn cipher_suite_prefers_aes(record: &[u8]) -> bool {
