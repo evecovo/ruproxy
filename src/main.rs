@@ -35,7 +35,12 @@ async fn main() -> Result<()> {
     info!("ruproxy starting, config: {config_path}");
 
     // ── Validate: at least one protocol section must be present ───────────────
-    if cfg.hysteria2.is_none() && cfg.vless.is_none() && cfg.tuic.is_none() && cfg.trojan.is_none() && cfg.vmess.is_none() {
+    if cfg.hysteria2.is_none()
+        && cfg.vless.is_none()
+        && cfg.tuic.is_none()
+        && cfg.trojan.is_none()
+        && cfg.vmess.is_none()
+    {
         anyhow::bail!(
             "no protocols configured — add a [hysteria2], [vless], or [tuic] section to your config"
         );

@@ -202,8 +202,6 @@ pub struct RealityConfig {
     pub server_name: String,
 }
 
-
-
 // ── Trojan ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

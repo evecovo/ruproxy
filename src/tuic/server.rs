@@ -106,7 +106,10 @@ pub async fn run(cfg: Arc<TuicConfig>) -> Result<()> {
 
 async fn build_tls(cfg: &TuicConfig) -> Result<RustlsServerConfig> {
     let tls = cfg.tls.as_ref();
-    match (tls.and_then(|t| t.cert_path.as_deref()), tls.and_then(|t| t.key_path.as_deref())) {
+    match (
+        tls.and_then(|t| t.cert_path.as_deref()),
+        tls.and_then(|t| t.key_path.as_deref()),
+    ) {
         (Some(cert_path), Some(key_path)) => {
             // Load from file
             let cert_data = tokio::fs::read(cert_path)

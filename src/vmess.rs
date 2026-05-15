@@ -1,7 +1,14 @@
-use std::{net::SocketAddr, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    net::SocketAddr,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
+use aes_gcm::{
+    aead::{Aead, KeyInit, Payload},
+    Aes128Gcm, Nonce,
+};
 use anyhow::{anyhow, bail, Context, Result};
-use aes_gcm::{aead::{Aead, KeyInit, Payload}, Aes128Gcm, Nonce};
 use hmac::{Hmac, Mac};
 use sha2::Digest;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -65,14 +72,22 @@ async fn handle(
         ("tcp", None) => Box::new(stream),
         ("tcp", Some(a)) => Box::new(a.accept(stream).await?),
         ("ws", None) => Box::new(
-            vless_ws::accept_plain(stream, &cfg.transport.ws_path, cfg.transport.ws_host.as_deref())
-                .await?,
+            vless_ws::accept_plain(
+                stream,
+                &cfg.transport.ws_path,
+                cfg.transport.ws_host.as_deref(),
+            )
+            .await?,
         ),
         ("ws", Some(a)) => {
             let tls = a.accept(stream).await?;
             Box::new(
-                vless_ws::accept_tls(tls, &cfg.transport.ws_path, cfg.transport.ws_host.as_deref())
-                    .await?,
+                vless_ws::accept_tls(
+                    tls,
+                    &cfg.transport.ws_path,
+                    cfg.transport.ws_host.as_deref(),
+                )
+                .await?,
             )
         }
         _ => bail!("bad transport"),
@@ -130,7 +145,12 @@ async fn decode_vmess_aead_request<S: AsyncRead + Unpin>(
 
     let mut enc_header = vec![0u8; plain_len + 16];
     s.read_exact(&mut enc_header).await?;
-    let payload_key = kdf16(uuid, KDF_SALT_AEAD_RESP_HEADER_PAYLOAD_KEY, &auth_id, &nonce);
+    let payload_key = kdf16(
+        uuid,
+        KDF_SALT_AEAD_RESP_HEADER_PAYLOAD_KEY,
+        &auth_id,
+        &nonce,
+    );
     let header_nonce = kdf12(uuid, KDF_SALT_AEAD_RESP_HEADER_LEN_KEY, &auth_id, &nonce);
     let header = aead_open(&enc_header, &payload_key, &header_nonce)?;
 
@@ -168,18 +188,35 @@ fn parse_vmess_plain_header(header: &[u8]) -> Result<VmessRequest> {
     let atyp = header[40];
     let host = match atyp {
         0x01 => {
-            if header.len() < idx + 4 { bail!("short ipv4") }
-            let mut b=[0;4]; b.copy_from_slice(&header[idx..idx+4]); idx+=4; std::net::Ipv4Addr::from(b).to_string()
+            if header.len() < idx + 4 {
+                bail!("short ipv4")
+            }
+            let mut b = [0; 4];
+            b.copy_from_slice(&header[idx..idx + 4]);
+            idx += 4;
+            std::net::Ipv4Addr::from(b).to_string()
         }
         0x02 => {
-            if header.len() < idx + 1 { bail!("short domain len") }
-            let l=header[idx] as usize; idx+=1;
-            if header.len() < idx + l { bail!("short domain") }
-            let d=String::from_utf8(header[idx..idx+l].to_vec())?; idx+=l; d
+            if header.len() < idx + 1 {
+                bail!("short domain len")
+            }
+            let l = header[idx] as usize;
+            idx += 1;
+            if header.len() < idx + l {
+                bail!("short domain")
+            }
+            let d = String::from_utf8(header[idx..idx + l].to_vec())?;
+            idx += l;
+            d
         }
         0x03 => {
-            if header.len() < idx + 16 { bail!("short ipv6") }
-            let mut b=[0;16]; b.copy_from_slice(&header[idx..idx+16]); idx+=16; format!("[{}]", std::net::Ipv6Addr::from(b))
+            if header.len() < idx + 16 {
+                bail!("short ipv6")
+            }
+            let mut b = [0; 16];
+            b.copy_from_slice(&header[idx..idx + 16]);
+            idx += 16;
+            format!("[{}]", std::net::Ipv6Addr::from(b))
         }
         _ => bail!("unsupported atyp {atyp:#x}"),
     };
@@ -205,7 +242,15 @@ async fn encode_vmess_aead_response<S: AsyncWrite + Unpin>(
     let mut nonce = [0u8; 12];
     nonce.copy_from_slice(&response_iv[..12]);
     let cipher = Aes128Gcm::new_from_slice(&key)?;
-    let out = cipher.encrypt(Nonce::from_slice(&nonce), Payload { msg: &resp, aad: b"" }).map_err(|_| anyhow!("encrypt response header failed"))?;
+    let out = cipher
+        .encrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: &resp,
+                aad: b"",
+            },
+        )
+        .map_err(|_| anyhow!("encrypt response header failed"))?;
     s.write_all(&out).await?;
     Ok(())
 }
@@ -215,7 +260,9 @@ fn vmess_cmd_key(uuid: &[u8; 16]) -> [u8; 16] {
     h.update(uuid);
     h.update(b"c48619fe-8f02-49e0-b9e9-edf763e17e21");
     let r = h.finalize();
-    let mut out=[0u8;16]; out.copy_from_slice(&r[..16]); out
+    let mut out = [0u8; 16];
+    out.copy_from_slice(&r[..16]);
+    out
 }
 
 fn validate_auth_id(auth_id: &[u8; 16], cmd_key: &[u8; 16]) -> Result<()> {
@@ -283,7 +330,7 @@ fn sha256_16(input: &[u8; 16]) -> [u8; 16] {
     let mut h = sha2::Sha256::new();
     h.update(input);
     let out = h.finalize();
-    let mut b=[0u8;16];
+    let mut b = [0u8; 16];
     b.copy_from_slice(&out[..16]);
     b
 }
