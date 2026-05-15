@@ -12,6 +12,8 @@ pub struct Config {
     pub hysteria2: Option<Hysteria2Config>,
     pub vless: Option<VlessConfig>,
     pub tuic: Option<TuicConfig>,
+    pub trojan: Option<TrojanConfig>,
+    pub vmess: Option<VmessConfig>,
 }
 
 // ── TUIC ──────────────────────────────────────────────────────────────────────
@@ -24,14 +26,8 @@ pub struct TuicConfig {
     /// UUID → password map for user authentication
     pub users: HashMap<Uuid, String>,
 
-    /// Path to TLS certificate (PEM). If omitted, a self-signed cert is generated.
-    pub cert_path: Option<String>,
-
-    /// Path to TLS private key (PEM). Required when cert_path is set.
-    pub key_path: Option<String>,
-
-    /// Domain for self-signed certificate generation (default: "tuic.local")
-    pub self_signed_domain: Option<String>,
+    /// TLS configuration. Use [tuic.tls] in config.toml.
+    pub tls: Option<BasicTlsConfig>,
 
     /// Maximum QUIC idle timeout (e.g. "30s"). Default: 30s
     #[serde(default = "default_tuic_idle_time", with = "humantime_serde")]
@@ -206,6 +202,36 @@ pub struct RealityConfig {
     pub server_name: String,
 }
 
+
+
+// ── Trojan ───────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TrojanConfig {
+    pub listen: String,
+    pub password: String,
+    #[serde(default)]
+    pub transport: VlessTransportConfig,
+    pub tls: Option<BasicTlsConfig>,
+}
+
+// ── VMess ────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct VmessConfig {
+    pub listen: String,
+    pub uuid: String,
+    #[serde(default)]
+    pub transport: VlessTransportConfig,
+    pub tls: Option<BasicTlsConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BasicTlsConfig {
+    pub cert_path: Option<String>,
+    pub key_path: Option<String>,
+    pub self_signed_domain: Option<String>,
+}
 // ── Shared ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
