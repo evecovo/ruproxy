@@ -2,22 +2,19 @@ use std::{collections::HashMap, net::UdpSocket as StdUdpSocket, sync::Arc};
 
 use anyhow::{Context, Result};
 use quinn::{
-    Endpoint, EndpointConfig, IdleTimeout, ServerConfig, TokioRuntime, TransportConfig, VarInt,
-    crypto::rustls::QuicServerConfig,
+    crypto::rustls::QuicServerConfig, Endpoint, EndpointConfig, IdleTimeout, ServerConfig,
+    TokioRuntime, TransportConfig, VarInt,
 };
 use rustls::{
-    ServerConfig as RustlsServerConfig,
     pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
+    ServerConfig as RustlsServerConfig,
 };
 use rustls_pemfile;
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::{
-    config::TuicConfig,
-    tuic::connection::Connection,
-};
+use crate::{config::TuicConfig, tuic::connection::Connection};
 
 pub async fn run(cfg: Arc<TuicConfig>) -> Result<()> {
     // ── Build TLS config ──────────────────────────────────────────────────────
@@ -28,8 +25,8 @@ pub async fn run(cfg: Arc<TuicConfig>) -> Result<()> {
     crypto.alpn_protocols = vec![b"tuic".to_vec()];
     crypto.max_early_data_size = u32::MAX;
 
-    let quic_server_cfg = QuicServerConfig::try_from(crypto)
-        .context("failed to create QUIC server config")?;
+    let quic_server_cfg =
+        QuicServerConfig::try_from(crypto).context("failed to create QUIC server config")?;
 
     // ── Transport config ──────────────────────────────────────────────────────
     let mut transport = TransportConfig::default();
@@ -44,11 +41,17 @@ pub async fn run(cfg: Arc<TuicConfig>) -> Result<()> {
     server_cfg.transport_config(Arc::new(transport));
 
     // ── Bind UDP socket ───────────────────────────────────────────────────────
-    let listen_addr: std::net::SocketAddr = cfg.listen.parse()
+    let listen_addr: std::net::SocketAddr = cfg
+        .listen
+        .parse()
         .with_context(|| format!("invalid listen address: {}", cfg.listen))?;
 
     let socket = {
-        let domain = if listen_addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
+        let domain = if listen_addr.is_ipv4() {
+            Domain::IPV4
+        } else {
+            Domain::IPV6
+        };
         let s = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))
             .context("failed to create UDP socket")?;
         s.bind(&SockAddr::from(listen_addr))
@@ -71,28 +74,26 @@ pub async fn run(cfg: Arc<TuicConfig>) -> Result<()> {
     // ── Accept loop ───────────────────────────────────────────────────────────
     loop {
         match endpoint.accept().await {
-            Some(connecting) => {
-                match connecting.accept() {
-                    Ok(conn) => {
-                        let users = users.clone();
-                        let cfg = cfg.clone();
-                        tokio::spawn(async move {
-                            match conn.await {
-                                Ok(connection) => {
-                                    let conn = Connection::new(connection, users, cfg);
-                                    conn.handle().await;
-                                }
-                                Err(e) => {
-                                    tracing::debug!("[TUIC] incoming connection failed: {e}");
-                                }
+            Some(connecting) => match connecting.accept() {
+                Ok(conn) => {
+                    let users = users.clone();
+                    let cfg = cfg.clone();
+                    tokio::spawn(async move {
+                        match conn.await {
+                            Ok(connection) => {
+                                let conn = Connection::new(connection, users, cfg);
+                                conn.handle().await;
                             }
-                        });
-                    }
-                    Err(e) => {
-                        tracing::debug!("[TUIC] accept error: {e}");
-                    }
+                            Err(e) => {
+                                tracing::debug!("[TUIC] incoming connection failed: {e}");
+                            }
+                        }
+                    });
                 }
-            }
+                Err(e) => {
+                    tracing::debug!("[TUIC] accept error: {e}");
+                }
+            },
             None => {
                 warn!("[TUIC] endpoint closed");
                 break;
@@ -123,10 +124,11 @@ async fn build_tls(cfg: &TuicConfig) -> Result<RustlsServerConfig> {
                 .context("parse key PEM")?
                 .context("no private key found")?;
 
-            let cfg = RustlsServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
-                .with_no_client_auth()
-                .with_single_cert(certs, key)
-                .context("TLS config")?;
+            let cfg =
+                RustlsServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+                    .with_no_client_auth()
+                    .with_single_cert(certs, key)
+                    .context("TLS config")?;
             Ok(cfg)
         }
         _ => {
@@ -141,10 +143,11 @@ async fn build_tls(cfg: &TuicConfig) -> Result<RustlsServerConfig> {
             let cert_der = CertificateDer::from(cert.cert);
             let key_der = PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
 
-            let cfg = RustlsServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
-                .with_no_client_auth()
-                .with_single_cert(vec![cert_der], PrivateKeyDer::Pkcs8(key_der))
-                .context("TLS config")?;
+            let cfg =
+                RustlsServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+                    .with_no_client_auth()
+                    .with_single_cert(vec![cert_der], PrivateKeyDer::Pkcs8(key_der))
+                    .context("TLS config")?;
             Ok(cfg)
         }
     }

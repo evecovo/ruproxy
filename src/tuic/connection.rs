@@ -2,8 +2,8 @@ use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket as StdUdpSocket},
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
+        Arc,
     },
     time::Duration,
 };
@@ -14,7 +14,7 @@ use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{self, TcpStream, UdpSocket},
-    sync::{Notify, RwLock as AsyncRwLock, oneshot},
+    sync::{oneshot, Notify, RwLock as AsyncRwLock},
     time,
 };
 use tracing::{debug, info, warn};
@@ -24,7 +24,7 @@ use crate::{
     config::TuicConfig,
     tuic::{
         error::Error,
-        proto::{Address, Command, PacketInfo, VERSION, build_packet_header},
+        proto::{build_packet_header, Address, Command, PacketInfo, VERSION},
     },
 };
 
@@ -34,16 +34,16 @@ use crate::{
 pub struct Authenticated(Arc<AuthInner>);
 
 struct AuthInner {
-    uuid:             std::sync::RwLock<Option<Uuid>>,
-    notify:           Notify,
+    uuid: std::sync::RwLock<Option<Uuid>>,
+    notify: Notify,
     is_authenticated: AtomicBool,
 }
 
 impl Authenticated {
     pub fn new() -> Self {
         Self(Arc::new(AuthInner {
-            uuid:             std::sync::RwLock::new(None),
-            notify:           Notify::new(),
+            uuid: std::sync::RwLock::new(None),
+            notify: Notify::new(),
             is_authenticated: AtomicBool::new(false),
         }))
     }
@@ -77,10 +77,10 @@ impl Authenticated {
 // ── UDP session ───────────────────────────────────────────────────────────────
 
 pub struct UdpSession {
-    assoc_id:  u16,
+    assoc_id: u16,
     socket_v4: UdpSocket,
     socket_v6: Option<UdpSocket>,
-    close_tx:  AsyncRwLock<Option<oneshot::Sender<()>>>,
+    close_tx: AsyncRwLock<Option<oneshot::Sender<()>>>,
 }
 
 impl UdpSession {
@@ -94,7 +94,10 @@ impl UdpSession {
         let socket_v4 = {
             let s = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
             s.set_nonblocking(true)?;
-            s.bind(&SockAddr::from(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))))?;
+            s.bind(&SockAddr::from(SocketAddr::from((
+                Ipv4Addr::UNSPECIFIED,
+                0,
+            ))))?;
             UdpSocket::from_std(StdUdpSocket::from(s))?
         };
 
@@ -102,7 +105,10 @@ impl UdpSession {
             let s = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
             s.set_nonblocking(true)?;
             s.set_only_v6(true)?;
-            s.bind(&SockAddr::from(SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0))))?;
+            s.bind(&SockAddr::from(SocketAddr::from((
+                Ipv6Addr::UNSPECIFIED,
+                0,
+            ))))?;
             Some(UdpSocket::from_std(StdUdpSocket::from(s))?)
         } else {
             None
@@ -210,12 +216,12 @@ impl UdpSession {
 
 #[derive(Clone)]
 pub struct Connection {
-    inner:       QuinnConnection,
-    auth:        Authenticated,
-    users:       Arc<HashMap<Uuid, String>>,
-    cfg:         Arc<TuicConfig>,
+    inner: QuinnConnection,
+    auth: Authenticated,
+    users: Arc<HashMap<Uuid, String>>,
+    cfg: Arc<TuicConfig>,
     udp_sessions: Arc<tokio::sync::Mutex<HashMap<u16, Arc<UdpSession>>>>,
-    udp_mode:    Arc<std::sync::Mutex<Option<UdpMode>>>,
+    udp_mode: Arc<std::sync::Mutex<Option<UdpMode>>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -234,7 +240,11 @@ impl std::fmt::Display for UdpMode {
 }
 
 impl Connection {
-    pub fn new(inner: QuinnConnection, users: Arc<HashMap<Uuid, String>>, cfg: Arc<TuicConfig>) -> Self {
+    pub fn new(
+        inner: QuinnConnection,
+        users: Arc<HashMap<Uuid, String>>,
+        cfg: Arc<TuicConfig>,
+    ) -> Self {
         Self {
             inner,
             auth: Authenticated::new(),
@@ -257,7 +267,9 @@ impl Connection {
             time::sleep(auth_timeout).await;
             if !conn_wdog.auth.is_authenticated() {
                 warn!("[TUIC] {peer} authentication timeout, closing");
-                conn_wdog.inner.close(quinn::VarInt::from_u32(0), b"auth timeout");
+                conn_wdog
+                    .inner
+                    .close(quinn::VarInt::from_u32(0), b"auth timeout");
             }
         });
 
@@ -321,8 +333,13 @@ impl Connection {
         let cmd = self.parse_command_with_prefix(peek, &mut recv).await;
 
         match cmd {
-            Ok(Command::Authenticate(auth)) => self.handle_authenticate(auth.uuid, auth.token).await,
-            Ok(Command::Packet(info)) => self.handle_packet_stream(info, &mut recv, UdpMode::Quic).await,
+            Ok(Command::Authenticate(auth)) => {
+                self.handle_authenticate(auth.uuid, auth.token).await
+            }
+            Ok(Command::Packet(info)) => {
+                self.handle_packet_stream(info, &mut recv, UdpMode::Quic)
+                    .await
+            }
             Ok(Command::Dissociate(id)) => self.handle_dissociate(id).await,
             Ok(other) => warn!("[TUIC] unexpected command on uni stream: {:?}", other),
             Err(e) => warn!("[TUIC] uni stream parse error: {e}"),
@@ -382,7 +399,8 @@ impl Connection {
                     return;
                 }
                 let payload = dg.slice(hdr_len..);
-                self.handle_packet_data(info, payload, UdpMode::Native).await;
+                self.handle_packet_data(info, payload, UdpMode::Native)
+                    .await;
             }
             Ok(Command::Heartbeat) => debug!("[TUIC] heartbeat"),
             Ok(other) => warn!("[TUIC] unexpected datagram command: {:?}", other),
@@ -430,8 +448,13 @@ impl Connection {
 
         // Direct approach: compute expected token
         let mut expected = [0u8; 32];
-        if self.inner
-            .export_keying_material(&mut expected, uuid.to_string().as_bytes(), Some(password.as_bytes()))
+        if self
+            .inner
+            .export_keying_material(
+                &mut expected,
+                uuid.to_string().as_bytes(),
+                Some(password.as_bytes()),
+            )
             .is_ok()
         {
             return expected == *token;
@@ -488,7 +511,8 @@ impl Connection {
         if recv.read_exact(&mut payload).await.is_err() {
             return;
         }
-        self.handle_packet_data(info, Bytes::from(payload), mode).await;
+        self.handle_packet_data(info, Bytes::from(payload), mode)
+            .await;
     }
 
     async fn handle_packet_data(&self, info: PacketInfo, payload: Bytes, mode: UdpMode) {
@@ -499,7 +523,10 @@ impl Connection {
                 None => *m = Some(mode),
                 Some(existing) => {
                     // Allow if same mode; warn if mismatch but continue
-                    if matches!((existing, mode), (UdpMode::Native, UdpMode::Quic) | (UdpMode::Quic, UdpMode::Native)) {
+                    if matches!(
+                        (existing, mode),
+                        (UdpMode::Native, UdpMode::Quic) | (UdpMode::Quic, UdpMode::Native)
+                    ) {
                         warn!("[TUIC][UDP] mode mismatch: expected {existing}, got {mode}");
                     }
                 }
@@ -507,7 +534,12 @@ impl Connection {
         }
 
         let assoc_id = info.assoc_id;
-        info!("[TUIC][UDP][{assoc_id:#06x}] pkt {}/{} from {}", info.frag_id + 1, info.frag_total, info.addr);
+        info!(
+            "[TUIC][UDP][{assoc_id:#06x}] pkt {}/{} from {}",
+            info.frag_id + 1,
+            info.frag_total,
+            info.addr
+        );
 
         // Fragmentation: only support frag_total=1 for now (no reassembly needed for simple case)
         if info.frag_total != 1 {
@@ -519,7 +551,10 @@ impl Connection {
         let target_addr = match self.resolve_addr(&info.addr).await {
             Ok(a) => a,
             Err(e) => {
-                warn!("[TUIC][UDP][{assoc_id:#06x}] resolve {} failed: {e}", info.addr);
+                warn!(
+                    "[TUIC][UDP][{assoc_id:#06x}] resolve {} failed: {e}",
+                    info.addr
+                );
                 return;
             }
         };
@@ -617,7 +652,8 @@ impl Connection {
             Address::None => Err(anyhow::anyhow!("empty address")),
             Address::SocketAddress(sa) => Ok(vec![*sa]),
             Address::DomainAddress(domain, port) => {
-                let addrs: Vec<SocketAddr> = net::lookup_host((domain.as_str(), *port)).await?.collect();
+                let addrs: Vec<SocketAddr> =
+                    net::lookup_host((domain.as_str(), *port)).await?.collect();
                 if addrs.is_empty() {
                     return Err(anyhow::anyhow!("DNS resolve failed for {domain}:{port}"));
                 }
@@ -639,7 +675,9 @@ impl Connection {
             return Err(Error::Protocol(format!("unsupported TUIC version: {ver}")));
         }
 
-        use crate::tuic::proto::{CMD_AUTHENTICATE, CMD_CONNECT, CMD_DISSOCIATE, CMD_HEARTBEAT, CMD_PACKET};
+        use crate::tuic::proto::{
+            CMD_AUTHENTICATE, CMD_CONNECT, CMD_DISSOCIATE, CMD_HEARTBEAT, CMD_PACKET,
+        };
 
         match cmd {
             CMD_AUTHENTICATE => {
@@ -647,7 +685,10 @@ impl Connection {
                 recv.read_exact(&mut buf).await.map_err(Error::Io)?;
                 let uuid = uuid::Uuid::from_bytes(buf[..16].try_into().unwrap());
                 let token: [u8; 32] = buf[16..48].try_into().unwrap();
-                Ok(Command::Authenticate(crate::tuic::proto::AuthInfo { uuid, token }))
+                Ok(Command::Authenticate(crate::tuic::proto::AuthInfo {
+                    uuid,
+                    token,
+                }))
             }
             CMD_CONNECT => {
                 let addr = Address::read_from(recv).await.map_err(Error::Io)?;
@@ -662,7 +703,14 @@ impl Connection {
                 let frag_id = buf[5];
                 let size = u16::from_be_bytes([buf[6], buf[7]]);
                 let addr = Address::read_from(recv).await.map_err(Error::Io)?;
-                Ok(Command::Packet(PacketInfo { assoc_id, pkt_id, frag_total, frag_id, size, addr }))
+                Ok(Command::Packet(PacketInfo {
+                    assoc_id,
+                    pkt_id,
+                    frag_total,
+                    frag_id,
+                    size,
+                    addr,
+                }))
             }
             CMD_DISSOCIATE => {
                 let mut buf = [0u8; 2];

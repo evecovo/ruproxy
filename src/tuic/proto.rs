@@ -49,7 +49,10 @@ impl Address {
                 let mut b = [0u8; 6];
                 r.read_exact(&mut b).await?;
                 let port = u16::from_be_bytes([b[4], b[5]]);
-                Ok(Self::SocketAddress(SocketAddr::from(([b[0], b[1], b[2], b[3]], port))))
+                Ok(Self::SocketAddress(SocketAddr::from((
+                    [b[0], b[1], b[2], b[3]],
+                    port,
+                ))))
             }
             0x02 => {
                 // IPv6
@@ -248,7 +251,14 @@ impl Command {
                 let frag_id = buf[5];
                 let size = u16::from_be_bytes([buf[6], buf[7]]);
                 let addr = Self::read_address_sync(r)?;
-                Ok(Self::Packet(PacketInfo { assoc_id, pkt_id, frag_total, frag_id, size, addr }))
+                Ok(Self::Packet(PacketInfo {
+                    assoc_id,
+                    pkt_id,
+                    frag_total,
+                    frag_id,
+                    size,
+                    addr,
+                }))
             }
             CMD_HEARTBEAT => Ok(Self::Heartbeat),
             CMD_DISSOCIATE => {
@@ -284,7 +294,10 @@ impl Command {
                 let mut b = [0u8; 6];
                 r.read_exact(&mut b)?;
                 let port = u16::from_be_bytes([b[4], b[5]]);
-                Ok(Address::SocketAddress(SocketAddr::from(([b[0], b[1], b[2], b[3]], port))))
+                Ok(Address::SocketAddress(SocketAddr::from((
+                    [b[0], b[1], b[2], b[3]],
+                    port,
+                ))))
             }
             0x02 => {
                 let mut b = [0u8; 18];
@@ -316,7 +329,12 @@ impl Command {
 }
 
 /// Build a TUIC packet header for sending back to client (server→client direction)
-pub fn build_packet_header(assoc_id: u16, pkt_id: u16, addr: &Address, payload_len: u16) -> Vec<u8> {
+pub fn build_packet_header(
+    assoc_id: u16,
+    pkt_id: u16,
+    addr: &Address,
+    payload_len: u16,
+) -> Vec<u8> {
     let mut buf = Vec::new();
     buf.push(VERSION);
     buf.push(CMD_PACKET);
