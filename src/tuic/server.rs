@@ -105,7 +105,11 @@ pub async fn run(cfg: Arc<TuicConfig>) -> Result<()> {
 }
 
 async fn build_tls(cfg: &TuicConfig) -> Result<RustlsServerConfig> {
-    match (&cfg.cert_path, &cfg.key_path) {
+    let tls = cfg.tls.as_ref();
+    match (
+        tls.and_then(|t| t.cert_path.as_deref()),
+        tls.and_then(|t| t.key_path.as_deref()),
+    ) {
         (Some(cert_path), Some(key_path)) => {
             // Load from file
             let cert_data = tokio::fs::read(cert_path)
@@ -133,9 +137,8 @@ async fn build_tls(cfg: &TuicConfig) -> Result<RustlsServerConfig> {
         }
         _ => {
             // Self-signed
-            let domain = cfg
-                .self_signed_domain
-                .clone()
+            let domain = tls
+                .and_then(|t| t.self_signed_domain.clone())
                 .unwrap_or_else(|| "tuic.local".to_string());
             warn!("[TUIC] no cert/key provided, generating self-signed cert for '{domain}'");
             let cert = rcgen::generate_simple_self_signed(vec![domain])

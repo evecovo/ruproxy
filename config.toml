@@ -36,12 +36,14 @@ listen = "0.0.0.0:7443"
 # UUID → password map. Add one entry per user.
 # Generate a UUID with: uuidgen  (Linux/macOS) or  python3 -c "import uuid; print(uuid.uuid4())"
 [tuic.users]
-users = { "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" = "your-strong-password-here" }
+"xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" = "your-strong-password-here"
 # "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" = "another-user-password"
 
-# TLS certificate. Omit both to auto-generate a self-signed cert.
+# TLS certificate. Put TLS under [tuic.tls] to avoid confusion with [tuic.users].
+# [tuic.tls]
 # cert_path = "/etc/ssl/certs/server.crt"
 # key_path  = "/etc/ssl/private/server.key"
+# or
 # self_signed_domain = "tuic.local"   # domain name in the self-signed cert
 
 # Optional tuning (shown with defaults, safe to omit):

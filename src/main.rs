@@ -1,7 +1,9 @@
 mod config;
 mod hysteria2;
+mod trojan;
 mod tuic;
 mod vless;
+mod vmess;
 
 use anyhow::{Context, Result};
 use std::sync::Arc;
@@ -33,7 +35,12 @@ async fn main() -> Result<()> {
     info!("ruproxy starting, config: {config_path}");
 
     // ── Validate: at least one protocol section must be present ───────────────
-    if cfg.hysteria2.is_none() && cfg.vless.is_none() && cfg.tuic.is_none() {
+    if cfg.hysteria2.is_none()
+        && cfg.vless.is_none()
+        && cfg.tuic.is_none()
+        && cfg.trojan.is_none()
+        && cfg.vmess.is_none()
+    {
         anyhow::bail!(
             "no protocols configured — add a [hysteria2], [vless], or [tuic] section to your config"
         );
@@ -69,6 +76,30 @@ async fn main() -> Result<()> {
         let h = tokio::spawn(async move {
             if let Err(e) = vless::listener::run(vless_cfg).await {
                 tracing::error!("[vless] server exited with error: {e:#}");
+            }
+        });
+        handles.push(h);
+    }
+
+    // ── Trojan server ─────────────────────────────────────────────────────────
+    if let Some(trojan_cfg) = cfg.trojan.clone() {
+        let trojan_cfg = Arc::new(trojan_cfg);
+        info!("[trojan] enabled, listen: {}", trojan_cfg.listen);
+        let h = tokio::spawn(async move {
+            if let Err(e) = trojan::run(trojan_cfg).await {
+                tracing::error!("[trojan] server exited with error: {e:#}");
+            }
+        });
+        handles.push(h);
+    }
+
+    // ── VMess server ──────────────────────────────────────────────────────────
+    if let Some(vmess_cfg) = cfg.vmess.clone() {
+        let vmess_cfg = Arc::new(vmess_cfg);
+        info!("[vmess] enabled, listen: {}", vmess_cfg.listen);
+        let h = tokio::spawn(async move {
+            if let Err(e) = vmess::run(vmess_cfg).await {
+                tracing::error!("[vmess] server exited with error: {e:#}");
             }
         });
         handles.push(h);
