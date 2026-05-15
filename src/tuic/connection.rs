@@ -53,6 +53,7 @@ impl Authenticated {
         self.0.notify.notify_waiters();
     }
 
+    #[allow(dead_code)]
     pub fn get(&self) -> Option<Uuid> {
         *self.0.uuid.read().unwrap()
     }
