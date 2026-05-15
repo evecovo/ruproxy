@@ -53,6 +53,10 @@ impl Authenticated {
         self.0.notify.notify_waiters();
     }
 
+    pub fn get(&self) -> Option<Uuid> {
+        *self.0.uuid.read().unwrap()
+    }
+
     pub fn is_authenticated(&self) -> bool {
         self.0.is_authenticated.load(Ordering::SeqCst)
     }
@@ -429,13 +433,13 @@ impl Connection {
 
     fn validate_token(&self, uuid: &Uuid, password: &str, token: &[u8; 32]) -> bool {
         // TUIC uses TLS keying material exporter:
-        // output = 32 bytes, label = uuid string bytes, context = password bytes
+        // label = uuid raw 16 bytes, context = password bytes
         let mut expected = [0u8; 32];
         if self
             .inner
             .export_keying_material(
                 &mut expected,
-                uuid.to_string().as_bytes(),
+                uuid.as_bytes(),
                 password.as_bytes(),
             )
             .is_ok()
