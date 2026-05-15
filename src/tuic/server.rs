@@ -85,7 +85,14 @@ pub async fn run(cfg: Arc<TuicConfig>) -> Result<()> {
                                 conn.handle().await;
                             }
                             Err(e) => {
-                                tracing::debug!("[TUIC] incoming connection failed: {e}");
+                                let msg = e.to_string();
+                                if msg.contains("peer doesn't support any known protocol") {
+                                    tracing::warn!(
+                                        "[TUIC] handshake ALPN mismatch: client did not offer 'tuic'. Ensure client is TUIC-over-QUIC and ALPN is set to 'tuic'. Raw QUIC/TLS clients will fail. error={msg}"
+                                    );
+                                } else {
+                                    tracing::debug!("[TUIC] incoming connection failed: {e}");
+                                }
                             }
                         }
                     });
