@@ -437,11 +437,7 @@ impl Connection {
         let mut expected = [0u8; 32];
         if self
             .inner
-            .export_keying_material(
-                &mut expected,
-                uuid.as_bytes(),
-                password.as_bytes(),
-            )
+            .export_keying_material(&mut expected, uuid.as_bytes(), password.as_bytes())
             .is_ok()
         {
             return expected == *token;
