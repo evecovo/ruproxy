@@ -33,8 +33,14 @@ rcgen = "0.13"
 tokio-tungstenite = "=0.20.1"
 futures-util = "0.3"
 
-# UUID (VLESS auth)
-uuid = { version = "1", features = ["v4"] }
+# UUID (VLESS auth + TUIC user auth)
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# TUIC: humantime for duration parsing in config
+humantime-serde = "1"
+
+# TUIC: socket2 for UDP socket creation
+socket2 = "0.5"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::{collections::HashMap, path::Path, time::Duration};
+use uuid::Uuid;
 
 // ── Top-level config ──────────────────────────────────────────────────────────
 
@@ -10,6 +11,60 @@ pub struct Config {
     pub log: LogConfig,
     pub hysteria2: Option<Hysteria2Config>,
     pub vless: Option<VlessConfig>,
+    pub tuic: Option<TuicConfig>,
+}
+
+// ── TUIC ──────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TuicConfig {
+    /// UDP listen address, e.g. "0.0.0.0:443"
+    pub listen: String,
+
+    /// UUID → password map for user authentication
+    pub users: HashMap<Uuid, String>,
+
+    /// Path to TLS certificate (PEM). If omitted, a self-signed cert is generated.
+    pub cert_path: Option<String>,
+
+    /// Path to TLS private key (PEM). Required when cert_path is set.
+    pub key_path: Option<String>,
+
+    /// Domain for self-signed certificate generation (default: "tuic.local")
+    pub self_signed_domain: Option<String>,
+
+    /// Maximum QUIC idle timeout (e.g. "30s"). Default: 30s
+    #[serde(default = "default_tuic_idle_time", with = "humantime_serde")]
+    pub max_idle_time: Duration,
+
+    /// How long to wait for authentication before closing (default: 3s)
+    #[serde(default = "default_tuic_auth_timeout", with = "humantime_serde")]
+    pub auth_timeout: Duration,
+
+    /// UDP relay timeout per session (default: 30s)
+    #[serde(default = "default_tuic_udp_timeout", with = "humantime_serde")]
+    pub udp_timeout: Duration,
+
+    /// Enable IPv6 UDP relay (default: false)
+    #[serde(default)]
+    pub udp_relay_ipv6: bool,
+
+    /// Maximum UDP packet size (default: 65535)
+    #[serde(default = "default_tuic_max_udp_packet_size")]
+    pub max_udp_packet_size: usize,
+}
+
+fn default_tuic_idle_time() -> Duration {
+    Duration::from_secs(30)
+}
+fn default_tuic_auth_timeout() -> Duration {
+    Duration::from_secs(3)
+}
+fn default_tuic_udp_timeout() -> Duration {
+    Duration::from_secs(30)
+}
+fn default_tuic_max_udp_packet_size() -> usize {
+    65535
 }
 
 // ── Hysteria2 ─────────────────────────────────────────────────────────────────

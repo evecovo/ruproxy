@@ -1,5 +1,6 @@
 mod config;
 mod hysteria2;
+mod tuic;
 mod vless;
 
 use anyhow::{Context, Result};
@@ -32,9 +33,9 @@ async fn main() -> Result<()> {
     info!("ruproxy starting, config: {config_path}");
 
     // ── Validate: at least one protocol section must be present ───────────────
-    if cfg.hysteria2.is_none() && cfg.vless.is_none() {
+    if cfg.hysteria2.is_none() && cfg.vless.is_none() && cfg.tuic.is_none() {
         anyhow::bail!(
-            "no protocols configured — add a [hysteria2] or [vless] section to your config"
+            "no protocols configured — add a [hysteria2], [vless], or [tuic] section to your config"
         );
     }
 
@@ -68,6 +69,19 @@ async fn main() -> Result<()> {
         let h = tokio::spawn(async move {
             if let Err(e) = vless::listener::run(vless_cfg).await {
                 tracing::error!("[vless] server exited with error: {e:#}");
+            }
+        });
+        handles.push(h);
+    }
+
+    // ── TUIC server ───────────────────────────────────────────────────────────
+    if let Some(tuic_cfg) = cfg.tuic.clone() {
+        let tuic_cfg = Arc::new(tuic_cfg);
+        info!("[tuic] enabled, listen: {}", tuic_cfg.listen);
+        info!("[tuic] users: {}", tuic_cfg.users.len());
+        let h = tokio::spawn(async move {
+            if let Err(e) = tuic::run(tuic_cfg).await {
+                tracing::error!("[tuic] server exited with error: {e:#}");
             }
         });
         handles.push(h);
