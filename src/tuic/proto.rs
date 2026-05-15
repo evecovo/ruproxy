@@ -223,7 +223,6 @@ impl Command {
     }
 
     fn read_from_sync(r: &mut impl std::io::Read) -> std::io::Result<Self> {
-        use std::io::Read;
         let mut hdr = [0u8; 2];
         r.read_exact(&mut hdr)?;
         let ver = hdr[0];
@@ -274,7 +273,6 @@ impl Command {
     }
 
     fn read_address_sync(r: &mut impl std::io::Read) -> std::io::Result<Address> {
-        use std::io::Read;
         let mut buf = [0u8; 1];
         r.read_exact(&mut buf)?;
         match buf[0] {

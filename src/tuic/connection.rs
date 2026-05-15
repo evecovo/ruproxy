@@ -12,7 +12,6 @@ use bytes::Bytes;
 use quinn::{Connection as QuinnConnection, RecvStream, SendStream};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
     net::{self, TcpStream, UdpSocket},
     sync::{oneshot, Notify, RwLock as AsyncRwLock},
     time,
@@ -348,7 +347,7 @@ impl Connection {
 
     // ── Bidirectional stream (Connect) ────────────────────────────────────────
 
-    async fn handle_bi(&self, mut send: SendStream, mut recv: RecvStream) {
+    async fn handle_bi(&self, send: SendStream, mut recv: RecvStream) {
         let mut peek = [0u8; 2];
         if recv.read_exact(&mut peek).await.is_err() {
             return;
@@ -434,34 +433,19 @@ impl Connection {
 
     fn validate_token(&self, uuid: &Uuid, password: &str, token: &[u8; 32]) -> bool {
         // TUIC uses TLS keying material exporter:
-        // label = uuid string, context = password bytes, length = 32
-        if let Ok(material) = self.inner.export_keying_material(
-            token, // output buffer (we pass token as dummy, actually we need to export)
-            uuid.to_string().as_bytes(),
-            Some(password.as_bytes()),
-        ) {
-            // export_keying_material writes into a provided buffer and returns ()
-            // but quinn's API: export_keying_material(output: &mut [u8], label, context)
-            // We re-implement: compute expected token then compare
-            let _ = material;
-        }
-
-        // Direct approach: compute expected token
+        // output = 32 bytes, label = uuid string bytes, context = password bytes
         let mut expected = [0u8; 32];
         if self
             .inner
             .export_keying_material(
                 &mut expected,
                 uuid.to_string().as_bytes(),
-                Some(password.as_bytes()),
+                password.as_bytes(),
             )
             .is_ok()
         {
             return expected == *token;
         }
-
-        // Fallback: if keying material export isn't available (shouldn't happen with QUIC/TLS1.3)
-        // reject
         false
     }
 
@@ -682,7 +666,7 @@ impl Connection {
         match cmd {
             CMD_AUTHENTICATE => {
                 let mut buf = [0u8; 48];
-                recv.read_exact(&mut buf).await.map_err(Error::Io)?;
+                recv.read_exact(&mut buf).await.map_err(|e| Error::Io(e.into()))?;
                 let uuid = uuid::Uuid::from_bytes(buf[..16].try_into().unwrap());
                 let token: [u8; 32] = buf[16..48].try_into().unwrap();
                 Ok(Command::Authenticate(crate::tuic::proto::AuthInfo {
@@ -696,7 +680,7 @@ impl Connection {
             }
             CMD_PACKET => {
                 let mut buf = [0u8; 8];
-                recv.read_exact(&mut buf).await.map_err(Error::Io)?;
+                recv.read_exact(&mut buf).await.map_err(|e| Error::Io(e.into()))?;
                 let assoc_id = u16::from_be_bytes([buf[0], buf[1]]);
                 let pkt_id = u16::from_be_bytes([buf[2], buf[3]]);
                 let frag_total = buf[4];
@@ -714,7 +698,7 @@ impl Connection {
             }
             CMD_DISSOCIATE => {
                 let mut buf = [0u8; 2];
-                recv.read_exact(&mut buf).await.map_err(Error::Io)?;
+                recv.read_exact(&mut buf).await.map_err(|e| Error::Io(e.into()))?;
                 Ok(Command::Dissociate(u16::from_be_bytes(buf)))
             }
             CMD_HEARTBEAT => Ok(Command::Heartbeat),

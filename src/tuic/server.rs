@@ -141,7 +141,7 @@ async fn build_tls(cfg: &TuicConfig) -> Result<RustlsServerConfig> {
             let cert = rcgen::generate_simple_self_signed(vec![domain])
                 .context("generate self-signed cert")?;
             let cert_der = CertificateDer::from(cert.cert);
-            let key_der = PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
+            let key_der = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
 
             let cfg =
                 RustlsServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
