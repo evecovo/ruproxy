@@ -53,10 +53,6 @@ impl Authenticated {
         self.0.notify.notify_waiters();
     }
 
-    pub fn get(&self) -> Option<Uuid> {
-        *self.0.uuid.read().unwrap()
-    }
-
     pub fn is_authenticated(&self) -> bool {
         self.0.is_authenticated.load(Ordering::SeqCst)
     }
@@ -689,7 +685,7 @@ impl Connection {
                 let addr = Address::read_from(recv).await.map_err(Error::Io)?;
                 Ok(Command::Packet(PacketInfo {
                     assoc_id,
-                    pkt_id,
+                    _pkt_id: pkt_id,
                     frag_total,
                     frag_id,
                     size,

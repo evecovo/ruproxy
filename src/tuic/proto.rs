@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 // ── Address ───────────────────────────────────────────────────────────────────
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum Address {
     None,
@@ -19,14 +20,6 @@ pub enum Address {
 }
 
 impl Address {
-    pub fn port(&self) -> u16 {
-        match self {
-            Self::None => 0,
-            Self::DomainAddress(_, port) => *port,
-            Self::SocketAddress(addr) => addr.port(),
-        }
-    }
-
     pub async fn read_from(r: &mut (impl AsyncRead + Unpin)) -> std::io::Result<Self> {
         let mut buf = [0u8; 1];
         r.read_exact(&mut buf).await?;
@@ -137,7 +130,7 @@ pub struct AuthInfo {
 #[derive(Debug)]
 pub struct PacketInfo {
     pub assoc_id: u16,
-    pub pkt_id: u16,
+    pub _pkt_id: u16,
     pub frag_total: u8,
     pub frag_id: u8,
     pub size: u16,
@@ -154,66 +147,6 @@ pub enum Command {
 }
 
 impl Command {
-    /// Read a command header from a unidirectional or bidirectional stream.
-    /// Caller must have already consumed the 2-byte VER+TYPE prefix via peek
-    /// to classify the stream, so here we re-read from scratch.
-    pub async fn read_from(r: &mut (impl AsyncRead + Unpin)) -> std::io::Result<Self> {
-        let mut hdr = [0u8; 2];
-        r.read_exact(&mut hdr).await?;
-        let ver = hdr[0];
-        let cmd = hdr[1];
-
-        if ver != VERSION {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("unsupported TUIC version: {ver}"),
-            ));
-        }
-
-        match cmd {
-            CMD_AUTHENTICATE => {
-                let mut buf = [0u8; 16 + 32];
-                r.read_exact(&mut buf).await?;
-                let uuid = Uuid::from_bytes(buf[..16].try_into().unwrap());
-                let token: [u8; 32] = buf[16..48].try_into().unwrap();
-                Ok(Self::Authenticate(AuthInfo { uuid, token }))
-            }
-            CMD_CONNECT => {
-                let addr = Address::read_from(r).await?;
-                Ok(Self::Connect(addr))
-            }
-            CMD_PACKET => {
-                let mut buf = [0u8; 8]; // assoc(2) + pkt_id(2) + frag_total(1) + frag_id(1) + size(2)
-                r.read_exact(&mut buf).await?;
-                let assoc_id = u16::from_be_bytes([buf[0], buf[1]]);
-                let pkt_id = u16::from_be_bytes([buf[2], buf[3]]);
-                let frag_total = buf[4];
-                let frag_id = buf[5];
-                let size = u16::from_be_bytes([buf[6], buf[7]]);
-                let addr = Address::read_from(r).await?;
-                Ok(Self::Packet(PacketInfo {
-                    assoc_id,
-                    pkt_id,
-                    frag_total,
-                    frag_id,
-                    size,
-                    addr,
-                }))
-            }
-            CMD_DISSOCIATE => {
-                let mut buf = [0u8; 2];
-                r.read_exact(&mut buf).await?;
-                let assoc_id = u16::from_be_bytes(buf);
-                Ok(Self::Dissociate(assoc_id))
-            }
-            CMD_HEARTBEAT => Ok(Self::Heartbeat),
-            _ => Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("unknown TUIC command: {cmd}"),
-            )),
-        }
-    }
-
     /// Read from datagram bytes (no stream, just a Bytes buffer)
     pub fn read_from_datagram(data: &bytes::Bytes) -> std::io::Result<Self> {
         use std::io::Cursor;
@@ -252,7 +185,7 @@ impl Command {
                 let addr = Self::read_address_sync(r)?;
                 Ok(Self::Packet(PacketInfo {
                     assoc_id,
-                    pkt_id,
+                    _pkt_id: pkt_id,
                     frag_total,
                     frag_id,
                     size,

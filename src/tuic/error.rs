@@ -5,6 +5,7 @@ use rustls::Error as RustlsError;
 use thiserror::Error;
 use uuid::Uuid;
 
+#[allow(dead_code)]
 #[derive(Debug, Error)]
 pub enum Error {
     #[error(transparent)]
