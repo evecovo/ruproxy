@@ -139,7 +139,7 @@ async fn decode_vmess_aead_request<S: AsyncRead + Unpin>(
     let len_key = kdf16(uuid, KDF_SALT_AUTH_ID_ENCRYPTION_KEY, &auth_id, &nonce);
     let len_nonce = [0u8; 12];
     let plain_len = aead_open_2b(&enc_len, &len_key, &len_nonce)? as usize;
-    if plain_len < 41 || plain_len > 2048 {
+    if !(41..=2048).contains(&plain_len) {
         bail!("invalid vmess header length: {plain_len}");
     }
 
