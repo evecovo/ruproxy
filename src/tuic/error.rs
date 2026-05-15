@@ -41,6 +41,17 @@ impl Error {
     }
 }
 
+impl From<quinn::ReadExactError> for Error {
+    fn from(err: quinn::ReadExactError) -> Self {
+        match err {
+            quinn::ReadExactError::ReadError(e) => Self::Io(IoError::from(e)),
+            quinn::ReadExactError::FinishedEarly(_) => {
+                Self::Io(IoError::from(std::io::ErrorKind::UnexpectedEof))
+            }
+        }
+    }
+}
+
 impl From<ConnectionError> for Error {
     fn from(err: ConnectionError) -> Self {
         match err {

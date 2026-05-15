@@ -668,7 +668,7 @@ impl Connection {
                 let mut buf = [0u8; 48];
                 recv.read_exact(&mut buf)
                     .await
-                    .map_err(|e| Error::Io(e.into()))?;
+                    .map_err(Error::from)?;
                 let uuid = uuid::Uuid::from_bytes(buf[..16].try_into().unwrap());
                 let token: [u8; 32] = buf[16..48].try_into().unwrap();
                 Ok(Command::Authenticate(crate::tuic::proto::AuthInfo {
@@ -684,7 +684,7 @@ impl Connection {
                 let mut buf = [0u8; 8];
                 recv.read_exact(&mut buf)
                     .await
-                    .map_err(|e| Error::Io(e.into()))?;
+                    .map_err(Error::from)?;
                 let assoc_id = u16::from_be_bytes([buf[0], buf[1]]);
                 let pkt_id = u16::from_be_bytes([buf[2], buf[3]]);
                 let frag_total = buf[4];
@@ -704,7 +704,7 @@ impl Connection {
                 let mut buf = [0u8; 2];
                 recv.read_exact(&mut buf)
                     .await
-                    .map_err(|e| Error::Io(e.into()))?;
+                    .map_err(Error::from)?;
                 Ok(Command::Dissociate(u16::from_be_bytes(buf)))
             }
             CMD_HEARTBEAT => Ok(Command::Heartbeat),
