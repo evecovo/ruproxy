@@ -20,9 +20,9 @@ pub async fn run(cfg: Arc<TuicConfig>) -> Result<()> {
     // ── Build TLS config ──────────────────────────────────────────────────────
     let crypto = build_tls(&cfg).await?;
 
-    // ── ALPN: TUIC uses "tuic" ────────────────────────────────────────────────
+    // ── ALPN: TUIC-over-QUIC compatibility (use "h3") ─────────────────────────
     let mut crypto = crypto;
-    crypto.alpn_protocols = vec![b"tuic".to_vec()];
+    crypto.alpn_protocols = vec![b"h3".to_vec()];
     crypto.max_early_data_size = u32::MAX;
 
     let quic_server_cfg =
@@ -88,7 +88,7 @@ pub async fn run(cfg: Arc<TuicConfig>) -> Result<()> {
                                 let msg = e.to_string();
                                 if msg.contains("peer doesn't support any known protocol") {
                                     tracing::warn!(
-                                        "[TUIC] handshake ALPN mismatch: client did not offer 'tuic'. Ensure client is TUIC-over-QUIC and ALPN is set to 'tuic'. Raw QUIC/TLS clients will fail. error={msg}"
+                                        "[TUIC] handshake ALPN mismatch: client did not offer 'h3'. Ensure client is TUIC-over-QUIC and ALPN includes 'h3'. error={msg}"
                                     );
                                 } else {
                                     tracing::debug!("[TUIC] incoming connection failed: {e}");

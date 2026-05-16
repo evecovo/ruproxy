@@ -7,12 +7,12 @@ use tokio_rustls::TlsAcceptor;
 use tracing::{debug, info, warn};
 
 use crate::config::TrojanConfig;
-use crate::vless::tls::standard as vless_tls;
-use crate::vless::transport::websocket as vless_ws;
+use crate::common::tls::standard as shared_tls;
+use crate::common::transport::websocket as shared_ws;
 
 pub async fn run(cfg: Arc<TrojanConfig>) -> Result<()> {
     let tls_acceptor = if let Some(t) = &cfg.tls {
-        let sc = vless_tls::build(
+        let sc = shared_tls::build(
             t.cert_path.as_deref(),
             t.key_path.as_deref(),
             t.self_signed_domain.as_deref(),
@@ -46,7 +46,7 @@ async fn handle(
         ("tcp", None) => Box::new(stream),
         ("tcp", Some(acc)) => Box::new(acc.accept(stream).await?),
         ("ws", None) => Box::new(
-            vless_ws::accept_plain(
+            shared_ws::accept_plain(
                 stream,
                 &cfg.transport.ws_path,
                 cfg.transport.ws_host.as_deref(),
@@ -56,7 +56,7 @@ async fn handle(
         ("ws", Some(acc)) => {
             let tls = acc.accept(stream).await?;
             Box::new(
-                vless_ws::accept_tls(
+                shared_ws::accept_tls(
                     tls,
                     &cfg.transport.ws_path,
                     cfg.transport.ws_host.as_deref(),

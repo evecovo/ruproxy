@@ -11,8 +11,9 @@ use tracing::{debug, info, warn};
 
 use crate::config::{VlessConfig, VlessTlsConfig};
 use crate::vless::protocol::{decode_request, encode_response, parse_uuid, CMD_TCP};
-use crate::vless::tls::{reality as vless_reality, standard as vless_tls};
-use crate::vless::transport::websocket as vless_ws;
+use crate::common::tls::standard as shared_tls;
+use crate::vless::tls::reality as vless_reality;
+use crate::common::transport::websocket as shared_ws;
 
 pub async fn run(cfg: Arc<VlessConfig>) -> Result<()> {
     let uuid_bytes =
@@ -21,15 +22,11 @@ pub async fn run(cfg: Arc<VlessConfig>) -> Result<()> {
     // Build TLS acceptor once, reuse across connections.
     let tls_acceptor: Option<Arc<TlsAcceptor>> = match &cfg.tls {
         None => None,
-        Some(VlessTlsConfig::Tls {
-            cert_path,
-            key_path,
-            self_signed_domain,
-        }) => {
-            let sc = vless_tls::build(
-                cert_path.as_deref(),
-                key_path.as_deref(),
-                self_signed_domain.as_deref(),
+        Some(VlessTlsConfig::Tls(tls_cfg)) => {
+            let sc = shared_tls::build(
+                tls_cfg.cert_path.as_deref(),
+                tls_cfg.key_path.as_deref(),
+                tls_cfg.self_signed_domain.as_deref(),
             )?;
             Some(Arc::new(TlsAcceptor::from(Arc::new(sc))))
         }
@@ -41,7 +38,7 @@ pub async fn run(cfg: Arc<VlessConfig>) -> Result<()> {
 
     let tls_label = match &cfg.tls {
         None => "none",
-        Some(VlessTlsConfig::Tls { .. }) => "tls",
+        Some(VlessTlsConfig::Tls(_)) => "tls",
         Some(VlessTlsConfig::Reality(_)) => "reality",
     };
 
@@ -85,7 +82,7 @@ async fn handle_conn(
         }
 
         // ── TCP + standard TLS ────────────────────────────────────────────
-        ("tcp", Some(VlessTlsConfig::Tls { .. })) => {
+        ("tcp", Some(VlessTlsConfig::Tls(_))) => {
             debug!("[vless] {peer} → TCP+TLS");
             let acceptor =
                 tls_acceptor.ok_or_else(|| anyhow::anyhow!("[vless] TLS acceptor missing"))?;
@@ -109,12 +106,12 @@ async fn handle_conn(
         // ── WS, no TLS ────────────────────────────────────────────────────
         ("ws", None) => {
             debug!("[vless] {peer} → WS");
-            let ws = vless_ws::accept_plain(stream, ws_path, ws_host).await?;
+            let ws = shared_ws::accept_plain(stream, ws_path, ws_host).await?;
             process_vless_stream(ws, peer, uuid_bytes).await
         }
 
         // ── WS + standard TLS ─────────────────────────────────────────────
-        ("ws", Some(VlessTlsConfig::Tls { .. })) => {
+        ("ws", Some(VlessTlsConfig::Tls(_))) => {
             debug!("[vless] {peer} → WS+TLS");
             let acceptor =
                 tls_acceptor.ok_or_else(|| anyhow::anyhow!("[vless] TLS acceptor missing"))?;
@@ -122,7 +119,7 @@ async fn handle_conn(
                 .accept(stream)
                 .await
                 .map_err(|e| anyhow::anyhow!("vless WS+TLS handshake failed: {e}"))?;
-            let ws = vless_ws::accept_tls(tls_stream, ws_path, ws_host).await?;
+            let ws = shared_ws::accept_tls(tls_stream, ws_path, ws_host).await?;
             process_vless_stream(ws, peer, uuid_bytes).await
         }
 
@@ -130,7 +127,7 @@ async fn handle_conn(
         ("ws", Some(VlessTlsConfig::Reality(reality_cfg))) => {
             debug!("[vless] {peer} → WS+Reality");
             let reality_stream = vless_reality::accept(stream, peer, reality_cfg).await?;
-            let ws = vless_ws::accept_tls(reality_stream, ws_path, ws_host).await?;
+            let ws = shared_ws::accept_tls(reality_stream, ws_path, ws_host).await?;
             process_vless_stream(ws, peer, uuid_bytes).await
         }
 

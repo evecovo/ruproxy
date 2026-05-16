@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::Path, time::Duration};
 use uuid::Uuid;
 
+use crate::common::tls::config::StandardTlsConfig;
+
 // ── Top-level config ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -27,7 +29,7 @@ pub struct TuicConfig {
     pub users: HashMap<Uuid, String>,
 
     /// TLS configuration. Use [tuic.tls] in config.toml.
-    pub tls: Option<BasicTlsConfig>,
+    pub tls: Option<StandardTlsConfig>,
 
     /// Maximum QUIC idle timeout (e.g. "30s"). Default: 30s
     #[serde(default = "default_tuic_idle_time", with = "humantime_serde")]
@@ -165,11 +167,7 @@ impl Default for VlessTransportConfig {
 pub enum VlessTlsConfig {
     /// Standard TLS: supply a certificate file and private key file,
     /// or let the server generate a self-signed certificate.
-    Tls {
-        cert_path: Option<String>,
-        key_path: Option<String>,
-        self_signed_domain: Option<String>,
-    },
+    Tls(#[serde(flatten)] StandardTlsConfig),
     /// Reality: TLS-camouflage transport.
     /// Clients authenticate via a short ID instead of a CA chain,
     /// so no certificate file is required.
@@ -210,7 +208,7 @@ pub struct TrojanConfig {
     pub password: String,
     #[serde(default)]
     pub transport: VlessTransportConfig,
-    pub tls: Option<BasicTlsConfig>,
+    pub tls: Option<StandardTlsConfig>,
 }
 
 // ── VMess ────────────────────────────────────────────────────────────────────
@@ -221,15 +219,9 @@ pub struct VmessConfig {
     pub uuid: String,
     #[serde(default)]
     pub transport: VlessTransportConfig,
-    pub tls: Option<BasicTlsConfig>,
+    pub tls: Option<StandardTlsConfig>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct BasicTlsConfig {
-    pub cert_path: Option<String>,
-    pub key_path: Option<String>,
-    pub self_signed_domain: Option<String>,
-}
 // ── Shared ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
