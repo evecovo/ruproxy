@@ -19,7 +19,7 @@ jobs:
         run: |
           # 获取远程仓库的所有分支，排除 master 和 HEAD
           # 如果你的主分支是 main，请将 master 改为 main
-          branches_to_delete=$(git branch -r | grep -vE "origin/master|origin/HEAD" | sed 's/origin\///')
+          branches_to_delete=$(git branch -r | grep -vE "origin/main|origin/HEAD" | sed 's/origin\///')
 
           if [ -z "$branches_to_delete" ]; then
             echo "没有发现需要删除的分支。"
