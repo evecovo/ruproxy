@@ -167,7 +167,10 @@ impl Default for VlessTransportConfig {
 pub enum VlessTlsConfig {
     /// Standard TLS: supply a certificate file and private key file,
     /// or let the server generate a self-signed certificate.
-    Tls(#[serde(flatten)] StandardTlsConfig),
+    Tls {
+        #[serde(flatten)]
+        standard: StandardTlsConfig,
+    },
     /// Reality: TLS-camouflage transport.
     /// Clients authenticate via a short ID instead of a CA chain,
     /// so no certificate file is required.
