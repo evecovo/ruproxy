@@ -18,8 +18,8 @@ use tracing::{info, warn};
 
 use crate::config::VmessConfig;
 use crate::vless::protocol::parse_uuid;
-use crate::vless::tls::standard as vless_tls;
-use crate::vless::transport::websocket as vless_ws;
+use crate::common::tls::standard as shared_tls;
+use crate::common::transport::websocket as shared_ws;
 
 type HmacSha256 = Hmac<sha2::Sha256>;
 
@@ -31,7 +31,7 @@ pub async fn run(cfg: Arc<VmessConfig>) -> Result<()> {
     let uuid = parse_uuid(&cfg.uuid)?;
     let cmd_key = vmess_cmd_key(&uuid);
     let tls_acceptor = if let Some(t) = &cfg.tls {
-        let sc = vless_tls::build(
+        let sc = shared_tls::build(
             t.cert_path.as_deref(),
             t.key_path.as_deref(),
             t.self_signed_domain.as_deref(),
@@ -72,7 +72,7 @@ async fn handle(
         ("tcp", None) => Box::new(stream),
         ("tcp", Some(a)) => Box::new(a.accept(stream).await?),
         ("ws", None) => Box::new(
-            vless_ws::accept_plain(
+            shared_ws::accept_plain(
                 stream,
                 &cfg.transport.ws_path,
                 cfg.transport.ws_host.as_deref(),
@@ -82,7 +82,7 @@ async fn handle(
         ("ws", Some(a)) => {
             let tls = a.accept(stream).await?;
             Box::new(
-                vless_ws::accept_tls(
+                shared_ws::accept_tls(
                     tls,
                     &cfg.transport.ws_path,
                     cfg.transport.ws_host.as_deref(),

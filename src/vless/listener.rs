@@ -11,8 +11,9 @@ use tracing::{debug, info, warn};
 
 use crate::config::{VlessConfig, VlessTlsConfig};
 use crate::vless::protocol::{decode_request, encode_response, parse_uuid, CMD_TCP};
-use crate::vless::tls::{reality as vless_reality, standard as vless_tls};
-use crate::vless::transport::websocket as vless_ws;
+use crate::common::tls::standard as shared_tls;
+use crate::vless::tls::reality as vless_reality;
+use crate::common::transport::websocket as shared_ws;
 
 pub async fn run(cfg: Arc<VlessConfig>) -> Result<()> {
     let uuid_bytes =
@@ -26,7 +27,7 @@ pub async fn run(cfg: Arc<VlessConfig>) -> Result<()> {
             key_path,
             self_signed_domain,
         }) => {
-            let sc = vless_tls::build(
+            let sc = shared_tls::build(
                 cert_path.as_deref(),
                 key_path.as_deref(),
                 self_signed_domain.as_deref(),
@@ -109,7 +110,7 @@ async fn handle_conn(
         // ── WS, no TLS ────────────────────────────────────────────────────
         ("ws", None) => {
             debug!("[vless] {peer} → WS");
-            let ws = vless_ws::accept_plain(stream, ws_path, ws_host).await?;
+            let ws = shared_ws::accept_plain(stream, ws_path, ws_host).await?;
             process_vless_stream(ws, peer, uuid_bytes).await
         }
 
@@ -122,7 +123,7 @@ async fn handle_conn(
                 .accept(stream)
                 .await
                 .map_err(|e| anyhow::anyhow!("vless WS+TLS handshake failed: {e}"))?;
-            let ws = vless_ws::accept_tls(tls_stream, ws_path, ws_host).await?;
+            let ws = shared_ws::accept_tls(tls_stream, ws_path, ws_host).await?;
             process_vless_stream(ws, peer, uuid_bytes).await
         }
 
@@ -130,7 +131,7 @@ async fn handle_conn(
         ("ws", Some(VlessTlsConfig::Reality(reality_cfg))) => {
             debug!("[vless] {peer} → WS+Reality");
             let reality_stream = vless_reality::accept(stream, peer, reality_cfg).await?;
-            let ws = vless_ws::accept_tls(reality_stream, ws_path, ws_host).await?;
+            let ws = shared_ws::accept_tls(reality_stream, ws_path, ws_host).await?;
             process_vless_stream(ws, peer, uuid_bytes).await
         }
 
