@@ -22,7 +22,7 @@ pub async fn run(cfg: Arc<VlessConfig>) -> Result<()> {
     // Build TLS acceptor once, reuse across connections.
     let tls_acceptor: Option<Arc<TlsAcceptor>> = match &cfg.tls {
         None => None,
-        Some(VlessTlsConfig::Tls(tls_cfg)) => {
+        Some(VlessTlsConfig::Tls { standard: tls_cfg }) => {
             let sc = shared_tls::build(
                 tls_cfg.cert_path.as_deref(),
                 tls_cfg.key_path.as_deref(),
@@ -38,7 +38,7 @@ pub async fn run(cfg: Arc<VlessConfig>) -> Result<()> {
 
     let tls_label = match &cfg.tls {
         None => "none",
-        Some(VlessTlsConfig::Tls(_)) => "tls",
+        Some(VlessTlsConfig::Tls { .. }) => "tls",
         Some(VlessTlsConfig::Reality(_)) => "reality",
     };
 
@@ -82,7 +82,7 @@ async fn handle_conn(
         }
 
         // ── TCP + standard TLS ────────────────────────────────────────────
-        ("tcp", Some(VlessTlsConfig::Tls(_))) => {
+        ("tcp", Some(VlessTlsConfig::Tls { .. })) => {
             debug!("[vless] {peer} → TCP+TLS");
             let acceptor =
                 tls_acceptor.ok_or_else(|| anyhow::anyhow!("[vless] TLS acceptor missing"))?;
@@ -111,7 +111,7 @@ async fn handle_conn(
         }
 
         // ── WS + standard TLS ─────────────────────────────────────────────
-        ("ws", Some(VlessTlsConfig::Tls(_))) => {
+        ("ws", Some(VlessTlsConfig::Tls { .. })) => {
             debug!("[vless] {peer} → WS+TLS");
             let acceptor =
                 tls_acceptor.ok_or_else(|| anyhow::anyhow!("[vless] TLS acceptor missing"))?;
