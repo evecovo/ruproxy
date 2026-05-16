@@ -9,11 +9,11 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, info, warn};
 
+use crate::common::tls::standard as shared_tls;
+use crate::common::transport::websocket as shared_ws;
 use crate::config::{VlessConfig, VlessTlsConfig};
 use crate::vless::protocol::{decode_request, encode_response, parse_uuid, CMD_TCP};
-use crate::common::tls::standard as shared_tls;
 use crate::vless::tls::reality as vless_reality;
-use crate::common::transport::websocket as shared_ws;
 
 pub async fn run(cfg: Arc<VlessConfig>) -> Result<()> {
     let uuid_bytes =
