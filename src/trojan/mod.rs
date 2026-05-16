@@ -6,9 +6,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, info, warn};
 
-use crate::config::TrojanConfig;
 use crate::common::tls::standard as shared_tls;
 use crate::common::transport::websocket as shared_ws;
+use crate::config::TrojanConfig;
 
 pub async fn run(cfg: Arc<TrojanConfig>) -> Result<()> {
     let tls_acceptor = if let Some(t) = &cfg.tls {

@@ -16,10 +16,10 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
 use tracing::{info, warn};
 
-use crate::config::VmessConfig;
-use crate::vless::protocol::parse_uuid;
 use crate::common::tls::standard as shared_tls;
 use crate::common::transport::websocket as shared_ws;
+use crate::config::VmessConfig;
+use crate::vless::protocol::parse_uuid;
 
 type HmacSha256 = Hmac<sha2::Sha256>;
 
