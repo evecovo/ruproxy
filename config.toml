@@ -32,8 +32,9 @@ password = "your-strong-password-here"
 # Remove or comment out this entire section to disable TUIC.
 [tuic]
 listen = "0.0.0.0:7443"
-# IMPORTANT: TUIC requires QUIC + ALPN = "tuic". If client ALPN is not "tuic",
-# handshake fails with: "peer doesn't support any known protocol".
+# IMPORTANT: TUIC in this implementation expects QUIC + ALPN = "h3".
+# If client ALPN does not include "h3", handshake can fail with:
+# "peer doesn't support any known protocol".
 
 # UUID → password map. Add one entry per user.
 # Generate a UUID with: uuidgen  (Linux/macOS) or  python3 -c "import uuid; print(uuid.uuid4())"
